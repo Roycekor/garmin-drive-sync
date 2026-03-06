@@ -73,9 +73,9 @@ if df.empty:
 
 # --- 1. Zone2 Pace Trend ---
 st.header("1. Zone2 Pace Trend")
-st.caption("Lower is faster. Downward trend = improvement.")
+st.caption("Zone2 비율 30% 이상인 런만 표시. Lower number is faster.")
 
-z2 = df[df['zone2_avg_pace_min_km'].notna()].copy()
+z2 = df[(df['zone2_avg_pace_min_km'].notna()) & (df['zone2_ratio'] >= 30)].copy()
 if not z2.empty:
     z2['pace_minutes'] = z2['zone2_avg_pace_min_km'].apply(pace_str_to_minutes)
     z2 = z2[z2['pace_minutes'].notna()]
@@ -94,7 +94,11 @@ if not z2.empty:
         hovertemplate='%{x|%Y-%m-%d}<br>Avg: %{customdata}<extra></extra>',
         customdata=z2['rolling_avg'].apply(minutes_to_pace_str)
     ))
-    fig1.update_yaxes(title_text="Pace (min/km)", autorange="reversed",
+    pace_min = z2['pace_minutes'].min()
+    pace_max = z2['pace_minutes'].max()
+    pad = (pace_max - pace_min) * 0.3 if pace_max > pace_min else 0.5
+    fig1.update_yaxes(title_text="Pace (min/km)",
+                      range=[pace_max + pad, pace_min - pad],
                       tickvals=[v / 2 for v in range(8, 20)],
                       ticktext=[minutes_to_pace_str(v / 2) for v in range(8, 20)])
     fig1.update_xaxes(title_text="Date")
@@ -117,7 +121,10 @@ if not hr.empty:
         hovertemplate='%{x|%Y-%m-%d}<br>Drift: %{y:.1f}%<extra></extra>'
     ))
     fig2.add_hline(y=5, line_dash="dash", line_color="green", annotation_text="5% target")
-    fig2.update_yaxes(title_text="HR Drift (%)")
+    drift_min = hr['hr_drift_percent'].min()
+    drift_max = hr['hr_drift_percent'].max()
+    drift_pad = (drift_max - drift_min) * 0.3 if drift_max > drift_min else 1
+    fig2.update_yaxes(title_text="HR Drift (%)", range=[min(0, drift_min - drift_pad), drift_max + drift_pad])
     fig2.update_xaxes(title_text="Date")
     fig2.update_layout(height=400, margin=dict(t=20))
     st.plotly_chart(fig2, use_container_width=True)
@@ -139,6 +146,8 @@ if not wd.empty:
                   hover_data={'runs': True, 'total_km': ':.1f'},
                   labels={'total_km': 'Distance (km)', 'week': 'Week', 'runs': 'Runs'})
     fig3.update_traces(marker_color='#636EFA')
+    km_max = weekly['total_km'].max()
+    fig3.update_yaxes(range=[0, km_max * 1.3])
     fig3.update_layout(height=400, margin=dict(t=20))
     st.plotly_chart(fig3, use_container_width=True)
 else:
@@ -158,7 +167,10 @@ if not ps.empty:
         customdata=ps['total_distance_km']
     ))
     fig4.add_hline(y=7.5, line_dash="dash", line_color="green", annotation_text="7.5% target")
-    fig4.update_yaxes(title_text="Pace CV (%)")
+    cv_min = ps['pace_stability_cv'].min()
+    cv_max = ps['pace_stability_cv'].max()
+    cv_pad = (cv_max - cv_min) * 0.3 if cv_max > cv_min else 1
+    fig4.update_yaxes(title_text="Pace CV (%)", range=[max(0, cv_min - cv_pad), cv_max + cv_pad])
     fig4.update_xaxes(title_text="Date")
     fig4.update_layout(height=400, margin=dict(t=20))
     st.plotly_chart(fig4, use_container_width=True)

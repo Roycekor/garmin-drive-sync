@@ -57,8 +57,11 @@ def zone2_summary(df, hr_low=137, hr_high=156):
         seconds = round((avg_pace_min_km - minutes) * 60)
         formatted_pace = f"{minutes}:{seconds:02d}"
     
+    zone2_ratio = len(zone2) / len(df) * 100 if len(df) > 0 else 0
+
     return {
         'zone2_seconds': int(len(zone2)),
+        'zone2_ratio': round(zone2_ratio, 1),
         'zone2_avg_speed_kmh': formatted_speed_kmh,
         'zone2_avg_pace_min_km': formatted_pace
     }
@@ -142,6 +145,7 @@ def save_run_analysis(db_path, filename, data):
         hr_drift_percent REAL,
         pace_stability_cv REAL,
         zone2_seconds INTEGER,
+        zone2_ratio REAL,
         zone2_avg_speed_kmh REAL,
         zone2_avg_pace_min_km TEXT,
         analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -149,8 +153,8 @@ def save_run_analysis(db_path, filename, data):
     cursor.execute('''INSERT OR REPLACE INTO run_analysis
         (filename, activity_date, total_distance_km, total_duration_sec,
          avg_hr, max_hr, avg_cadence, hr_drift_percent, pace_stability_cv,
-         zone2_seconds, zone2_avg_speed_kmh, zone2_avg_pace_min_km, analyzed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+         zone2_seconds, zone2_ratio, zone2_avg_speed_kmh, zone2_avg_pace_min_km, analyzed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
         (filename,
          data.get('activity_date'),
          data.get('total_distance_km'),
@@ -161,6 +165,7 @@ def save_run_analysis(db_path, filename, data):
          data.get('hr_drift_percent'),
          data.get('pace_stability_cv'),
          data.get('zone2_seconds'),
+         data.get('zone2_ratio'),
          data.get('zone2_avg_speed_kmh'),
          data.get('zone2_avg_pace_min_km'),
          datetime.now().isoformat()))
