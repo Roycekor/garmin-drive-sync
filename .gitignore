@@ -212,3 +212,7 @@ config/client_secrets.json
 logs/
 tmp/
 *.sqlite
+
+.env
+venv*/
+.DS_Store
