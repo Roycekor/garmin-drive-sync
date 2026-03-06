@@ -23,7 +23,7 @@ def fit_to_dataframe(fit_path):
         df['date'] = df['timestamp'].dt.date
     return df
 
-def zone2_summary(df, hr_low=120, hr_high=140):
+def zone2_summary(df, hr_low=137, hr_high=156):
     if df.empty or 'heart_rate' not in df.columns:
         return {'zone2_seconds': 0, 'zone2_avg_speed_kmh': None, 'zone2_avg_pace_min_km': None}
     zone2 = df[(df['heart_rate'] >= hr_low) & (df['heart_rate'] <= hr_high)]

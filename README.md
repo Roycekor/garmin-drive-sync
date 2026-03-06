@@ -256,7 +256,7 @@ python scripts/main.py --analyze-only
 ```
 
 ### 분석 내용
-- **Zone2 구간**: 심박수 120-140 bpm 범위
+- **Zone2 구간**: 심박수 137-156 bpm 범위
 - **메트릭**: 총 시간(초), 평균 속도(km/h), 평균 페이스(min/km)
 - **저장**: 로그 파일 + SQLite 데이터베이스(`analysis.db`)
 
