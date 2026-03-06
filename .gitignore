@@ -207,13 +207,13 @@ marimo/_lsp/
 __marimo__/
 
 # garmin-drive-sync
-credentials.json
+*credentials.json
 config/client_secrets.json
+config/dashboard.json
 logs/
 tmp/
 *.sqlite
 
-.env
 venv*/
 .DS_Store
 .sync_initialized

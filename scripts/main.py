@@ -2,6 +2,7 @@
 import os
 import logging
 import json
+import shutil
 import argparse
 from pathlib import Path
 from datetime import datetime
@@ -56,6 +57,7 @@ LOGFILE = WORKDIR / "logs/sync.log"
 DBFILE = WORKDIR / "uploaded.json"
 DB_ANALYSIS = WORKDIR / "analysis.db"
 INITFILE = WORKDIR / ".sync_initialized"
+DASHBOARD_CONFIG = WORKDIR / "config" / "dashboard.json"
 
 # 로깅 설정
 LOGDIR = WORKDIR / "logs"
@@ -118,6 +120,24 @@ def analyze_local_files():
             logger.warning(f"[{i}/{total_files}] 파일 {filename} 분석 실패: {e}")
     
     logger.info("✅ 로컬 FIT 파일 분석 완료")
+    sync_db_to_dashboard()
+
+def sync_db_to_dashboard():
+    """analysis.db를 대시보드 저장소로 복사"""
+    if not DASHBOARD_CONFIG.exists():
+        logger.debug("dashboard.json 설정 없음, DB 복사 건너뜀")
+        return
+    try:
+        config = json.loads(DASHBOARD_CONFIG.read_text())
+        repo_path = Path(config.get('repo_path', ''))
+        if not repo_path.is_dir():
+            logger.warning(f"대시보드 저장소 경로가 존재하지 않음: {repo_path}")
+            return
+        shutil.copy2(str(DB_ANALYSIS), str(repo_path / "analysis.db"))
+        logger.info(f"analysis.db → {repo_path} 복사 완료")
+    except Exception as e:
+        logger.warning(f"대시보드 DB 복사 실패: {e}")
+
 
 def load_uploaded():
     if DBFILE.exists():
@@ -227,6 +247,7 @@ def run_once():
         mark_initialized()
     
     logger.info(f"✅ 작업 완료. (새로 업로드: {uploaded_count}개, 이미 업로드된 활동: {len(new_uploaded) - uploaded_count}개)")
+    sync_db_to_dashboard()
 
 if __name__ == "__main__":
     try:

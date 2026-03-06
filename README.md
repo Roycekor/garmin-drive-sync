@@ -22,11 +22,15 @@ garmin-drive-sync/
 │  ├─ garmin_client.py     # Garmin Connect 연동
 │  ├─ drive_uploader.py    # Google Drive 업로드
 │  └─ fit_analyzer.py      # FIT 파일 분석 (Zone2, HR drift, 페이스 안정성)
+├─ config/
+│  ├─ client_secrets.json  # Google OAuth 클라이언트 설정
+│  └─ dashboard.json       # 대시보드 저장소 경로 설정
 ├─ dashboard.py            # Streamlit 대시보드
 ├─ analysis.db             # 분석 결과 DB (자동 생성)
 ├─ requirements.txt
 ├─ settings.yaml           # PyDrive2 OAuth 설정
 ├─ INSTALL.md              # 설치 및 설정 가이드
+├─ DASHBOARD.md            # 대시보드 배포 가이드
 └─ launch_agents/          # macOS launchd 설정
 ```
 
@@ -55,6 +59,7 @@ python scripts/main.py --analyze-only
 ```
 
 로컬 `tmp/` 폴더의 FIT 파일을 분석하여 `analysis.db`에 저장합니다.
+`config/dashboard.json`에 대시보드 저장소 경로가 설정되어 있으면, 분석 완료 후 `analysis.db`를 자동으로 복사합니다.
 
 ### 대시보드 실행
 
@@ -139,6 +144,22 @@ Streamlit 기반 인터랙티브 대시보드로 4개 차트를 제공합니다:
 4. **Long Run Pace Stability (8km+)** — 변동계수 7.5% 기준선 표시
 
 사이드바에서 날짜 범위 및 최소 거리 필터를 조절할 수 있습니다.
+
+### 대시보드 배포
+
+Streamlit Community Cloud에 무료 배포할 수 있습니다. 자세한 내용은 [DASHBOARD.md](DASHBOARD.md)를 참고하세요.
+
+### 대시보드 저장소 자동 동기화
+
+`config/dashboard.json`에 배포용 저장소 경로를 설정하면, 분석 완료 시 `analysis.db`가 자동으로 복사됩니다:
+
+```json
+{
+  "repo_path": "/path/to/garmin-running-dashboard"
+}
+```
+
+설정 파일이 없거나 경로가 유효하지 않으면 복사를 건너뜁니다.
 
 ---
 
