@@ -7,6 +7,16 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+def get_fit_sport(fit_path):
+    """FIT 파일에서 sport 타입을 추출 (예: 'running', 'cycling')"""
+    fitfile = FitFile(fit_path)
+    for msg in fitfile.get_messages('sport'):
+        for field in msg:
+            if field.name == 'sport':
+                return field.value
+    return None
+
+
 def fit_to_dataframe(fit_path):
     fitfile = FitFile(fit_path)
     records = []
@@ -53,11 +63,117 @@ def zone2_summary(df, hr_low=137, hr_high=156):
         'zone2_avg_pace_min_km': formatted_pace
     }
 
+def run_summary(df):
+    """활동 전체 요약 추출"""
+    if df.empty or 'timestamp' not in df.columns:
+        return {}
+    result = {
+        'activity_date': str(df['timestamp'].iloc[0].date()),
+        'total_duration_sec': int((df['timestamp'].iloc[-1] - df['timestamp'].iloc[0]).total_seconds()),
+    }
+    if 'distance' in df.columns:
+        result['total_distance_km'] = round(df['distance'].iloc[-1] / 1000, 2)
+    if 'heart_rate' in df.columns:
+        result['avg_hr'] = round(df['heart_rate'].mean(), 1)
+        result['max_hr'] = int(df['heart_rate'].max())
+    if 'cadence' in df.columns:
+        result['avg_cadence'] = round(df['cadence'].mean(), 1)
+    return result
+
+
+def hr_drift(df):
+    """전반부/후반부 HR 비교로 HR drift % 계산"""
+    if df.empty or 'heart_rate' not in df.columns or 'timestamp' not in df.columns:
+        return None
+    mid = len(df) // 2
+    if mid < 10:
+        return None
+    avg_hr_1st = df['heart_rate'].iloc[:mid].mean()
+    avg_hr_2nd = df['heart_rate'].iloc[mid:].mean()
+    if avg_hr_1st == 0 or pd.isna(avg_hr_1st):
+        return None
+    return round(((avg_hr_2nd / avg_hr_1st) - 1) * 100, 2)
+
+
+def pace_stability(df, min_distance_km=8):
+    """1km 구간별 페이스의 변동계수(CV) 계산. 10km 미만 활동은 None 반환"""
+    if df.empty or 'distance' not in df.columns or 'timestamp' not in df.columns:
+        return None
+    total_dist = df['distance'].iloc[-1] / 1000
+    if total_dist < min_distance_km:
+        return None
+
+    # 1km 구간별 페이스 계산
+    km_paces = []
+    km_mark = 1.0
+    prev_idx = 0
+    for i in range(1, len(df)):
+        dist_km = df['distance'].iloc[i] / 1000
+        if dist_km >= km_mark:
+            seg = df.iloc[prev_idx:i + 1]
+            seg_time = (seg['timestamp'].iloc[-1] - seg['timestamp'].iloc[0]).total_seconds()
+            seg_dist = (seg['distance'].iloc[-1] - seg['distance'].iloc[0]) / 1000
+            if seg_dist > 0 and seg_time > 0:
+                pace = seg_time / seg_dist / 60  # min/km
+                km_paces.append(pace)
+            prev_idx = i
+            km_mark += 1.0
+
+    if len(km_paces) < 3:
+        return None
+    paces = pd.Series(km_paces)
+    cv = (paces.std() / paces.mean()) * 100
+    return round(cv, 2)
+
+
+def save_run_analysis(db_path, filename, data):
+    """통합 분석 결과를 run_analysis 테이블에 저장"""
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute('''CREATE TABLE IF NOT EXISTS run_analysis (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        filename TEXT UNIQUE NOT NULL,
+        activity_date DATE,
+        total_distance_km REAL,
+        total_duration_sec INTEGER,
+        avg_hr REAL,
+        max_hr REAL,
+        avg_cadence REAL,
+        hr_drift_percent REAL,
+        pace_stability_cv REAL,
+        zone2_seconds INTEGER,
+        zone2_avg_speed_kmh REAL,
+        zone2_avg_pace_min_km TEXT,
+        analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )''')
+    cursor.execute('''INSERT OR REPLACE INTO run_analysis
+        (filename, activity_date, total_distance_km, total_duration_sec,
+         avg_hr, max_hr, avg_cadence, hr_drift_percent, pace_stability_cv,
+         zone2_seconds, zone2_avg_speed_kmh, zone2_avg_pace_min_km, analyzed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+        (filename,
+         data.get('activity_date'),
+         data.get('total_distance_km'),
+         data.get('total_duration_sec'),
+         data.get('avg_hr'),
+         data.get('max_hr'),
+         data.get('avg_cadence'),
+         data.get('hr_drift_percent'),
+         data.get('pace_stability_cv'),
+         data.get('zone2_seconds'),
+         data.get('zone2_avg_speed_kmh'),
+         data.get('zone2_avg_pace_min_km'),
+         datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
+    logger.info(f"통합 분석 결과 DB에 저장: {filename}")
+
+
 def save_zone2_analysis(db_path, filename, analysis_result):
     """Zone2 분석 결과를 SQLite 데이터베이스에 저장"""
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    
+
     # 테이블 생성 (없으면)
     cursor.execute('''CREATE TABLE IF NOT EXISTS zone2_analysis (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,17 +183,17 @@ def save_zone2_analysis(db_path, filename, analysis_result):
         zone2_avg_pace_min_km TEXT,
         analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )''')
-    
+
     # 중복 방지: 같은 파일명으로 이미 분석된 게 있으면 업데이트
-    cursor.execute('''INSERT OR REPLACE INTO zone2_analysis 
+    cursor.execute('''INSERT OR REPLACE INTO zone2_analysis
         (filename, zone2_seconds, zone2_avg_speed_kmh, zone2_avg_pace_min_km, analyzed_at)
-        VALUES (?, ?, ?, ?, ?)''', 
-        (filename, 
-         analysis_result['zone2_seconds'], 
-         analysis_result['zone2_avg_speed_kmh'], 
+        VALUES (?, ?, ?, ?, ?)''',
+        (filename,
+         analysis_result['zone2_seconds'],
+         analysis_result['zone2_avg_speed_kmh'],
          analysis_result['zone2_avg_pace_min_km'],
          datetime.now().isoformat()))
-    
+
     conn.commit()
     conn.close()
     logger.info(f"Zone2 분석 결과 DB에 저장: {filename}")

@@ -12,7 +12,8 @@ load_dotenv()
 
 from garmin_client import GarminClient
 from drive_uploader import DriveUploader
-from fit_analyzer import fit_to_dataframe, zone2_summary, save_zone2_analysis
+from fit_analyzer import (fit_to_dataframe, get_fit_sport, zone2_summary, save_zone2_analysis,
+                          run_summary, hr_drift, pace_stability, save_run_analysis)
 
 # 활동 타입 매핑
 ACTIVITY_TYPE_MAPPING = {
@@ -91,13 +92,26 @@ def analyze_local_files():
             else:
                 aid = filename.split(".")[0]
             
+            # FIT 파일에서 활동 타입 확인 — running만 분석
+            sport = get_fit_sport(str(fit_path))
+            if sport != 'running':
+                logger.info(f"[{i}/{total_files}] 파일 {filename}: {sport} (러닝 아님, 건너뜀)")
+                continue
+
             logger.info(f"[{i}/{total_files}] 파일 {filename} 분석 중...")
-            
+
             df = fit_to_dataframe(str(fit_path))
             summ = zone2_summary(df)
             logger.info(f"[{i}/{total_files}] 파일 {filename} Zone2 분석: {summ}")
-            
-            # DB에 저장
+
+            # 통합 분석
+            summary = run_summary(df)
+            drift = hr_drift(df)
+            stability = pace_stability(df)
+            data = {**summary, **summ, 'hr_drift_percent': drift, 'pace_stability_cv': stability}
+            save_run_analysis(str(DB_ANALYSIS), filename, data)
+
+            # 기존 zone2 테이블에도 저장 (하위호환)
             save_zone2_analysis(str(DB_ANALYSIS), filename, summ)
             
         except Exception as e:
@@ -193,6 +207,12 @@ def run_once():
                     df = fit_to_dataframe(str(local_path))
                     summ = zone2_summary(df)
                     logger.info(f"[{processed}/{total_acts}] 활동 {aid} Zone2 분석: {summ}")
+
+                    summary = run_summary(df)
+                    drift = hr_drift(df)
+                    stability = pace_stability(df)
+                    data = {**summary, **summ, 'hr_drift_percent': drift, 'pace_stability_cv': stability}
+                    save_run_analysis(str(DB_ANALYSIS), filename, data)
                 except Exception as fit_error:
                     logger.warning(f"[{processed}/{total_acts}] 활동 {aid} FIT 분석 실패 (건너뜀): {fit_error}")
 
