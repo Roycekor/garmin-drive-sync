@@ -19,10 +19,23 @@ class GarminClient:
     def list_recent_activities(self, limit=20):
         return self.client.get_activities(0, limit)
 
+    def list_all_activities(self, batch_size=100):
+        """모든 활동을 페이지네이션으로 가져옵니다 (과거 데이터 포함)"""
+        all_activities = []
+        offset = 0
+        while True:
+            activities = self.client.get_activities(offset, batch_size)
+            if not activities:
+                break
+            all_activities.extend(activities)
+            logger.info(f"활동 {len(all_activities)}개 로드 완료")
+            offset += batch_size
+        return all_activities
+
     def download_activity_fit(self, activity_id, out_path):
         fit_data = self.client.download_activity(
             activity_id,
-            dl_fmt=self.client.ActivityDownloadFormat.FIT
+            dl_fmt=self.client.ActivityDownloadFormat.ORIGINAL
         )
         with open(out_path, "wb") as f:
             f.write(fit_data)
