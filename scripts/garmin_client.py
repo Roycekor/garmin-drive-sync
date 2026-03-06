@@ -1,6 +1,9 @@
 # scripts/garmin_client.py
 from garminconnect import Garmin
 import logging
+import zipfile
+import io
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +40,36 @@ class GarminClient:
             activity_id,
             dl_fmt=self.client.ActivityDownloadFormat.ORIGINAL
         )
-        with open(out_path, "wb") as f:
-            f.write(fit_data)
-        logger.info(f"FIT 다운로드 완료: {out_path}")
-        return out_path
+        
+        # ORIGINAL 형식은 ZIP 파일이므로 압축 해제
+        try:
+            out_path_obj = Path(out_path)
+            with zipfile.ZipFile(io.BytesIO(fit_data)) as zip_ref:
+                # ZIP 내 .fit 파일 찾기
+                fit_files = [f for f in zip_ref.namelist() if f.endswith('.fit')]
+                if fit_files:
+                    # 첫 번째 .fit 파일 추출
+                    fit_filename = fit_files[0]
+                    fit_content = zip_ref.read(fit_filename)
+                    with open(out_path, "wb") as f:
+                        f.write(fit_content)
+                    logger.info(f"FIT 다운로드 완료: {out_path} (ZIP에서 {fit_filename} 추출)")
+                    return out_path
+                else:
+                    # .fit 파일이 없으면 ZIP의 첫 파일 추출 시도
+                    if zip_ref.namelist():
+                        first_file = zip_ref.namelist()[0]
+                        content = zip_ref.read(first_file)
+                        with open(out_path, "wb") as f:
+                            f.write(content)
+                        logger.info(f"FIT 다운로드 완료: {out_path} (ZIP에서 {first_file} 추출)")
+                        return out_path
+                    else:
+                        raise ValueError("ZIP 파일이 비어있음")
+        except zipfile.BadZipFile:
+            # ZIP이 아닌 경우 그대로 저장 (호환성)
+            logger.warning("ZIP 파일이 아님, 그대로 저장합니다")
+            with open(out_path, "wb") as f:
+                f.write(fit_data)
+            logger.info(f"FIT 다운로드 완료: {out_path}")
+            return out_path

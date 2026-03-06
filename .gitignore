@@ -216,3 +216,6 @@ tmp/
 .env
 venv*/
 .DS_Store
+.sync_initialized
+uploaded.json
+analysis.db
