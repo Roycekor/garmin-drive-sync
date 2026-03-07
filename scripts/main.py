@@ -3,6 +3,7 @@ import os
 import logging
 import json
 import shutil
+import subprocess
 import argparse
 from pathlib import Path
 from datetime import datetime
@@ -135,8 +136,33 @@ def sync_db_to_dashboard():
             return
         shutil.copy2(str(DB_ANALYSIS), str(repo_path / "analysis.db"))
         logger.info(f"analysis.db → {repo_path} 복사 완료")
+
+        # git repo 확인
+        git_check = subprocess.run(
+            ['git', 'rev-parse', '--git-dir'],
+            cwd=str(repo_path), capture_output=True
+        )
+        if git_check.returncode != 0:
+            logger.info("대시보드 저장소에 git 설정 없음, push 건너뜀")
+            return
+
+        # git add, commit, push
+        result = subprocess.run(
+            ['git', 'diff', '--quiet', 'analysis.db'],
+            cwd=str(repo_path), capture_output=True
+        )
+        if result.returncode == 0:
+            logger.info("analysis.db 변경 없음, push 건너뜀")
+            return
+        subprocess.run(['git', 'add', 'analysis.db'], cwd=str(repo_path), check=True)
+        subprocess.run(
+            ['git', 'commit', '-m', '[data] update analysis.db'],
+            cwd=str(repo_path), check=True
+        )
+        subprocess.run(['git', 'push'], cwd=str(repo_path), check=True)
+        logger.info("대시보드 저장소 git push 완료")
     except Exception as e:
-        logger.warning(f"대시보드 DB 복사 실패: {e}")
+        logger.warning(f"대시보드 DB 동기화 실패: {e}")
 
 
 def load_uploaded():

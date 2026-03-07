@@ -77,19 +77,23 @@ git push -u origin main
 }
 ```
 
-분석 실행 후 push만 하면 됩니다:
+대시보드 저장소에 git이 설정되어 있으면, 분석 완료 후 자동으로 `git add → commit → push`까지 수행합니다.
+분석 실행만 하면 배포까지 자동으로 완료됩니다:
 
 ```bash
-# garmin-drive-sync에서 분석 실행 (analysis.db 자동 복사됨)
 cd /path/to/garmin-drive-sync
 python scripts/main.py --analyze-only
-
-# 대시보드 저장소에서 push
-cd /path/to/garmin-running-dashboard
-git add analysis.db
-git commit -m "[data] update analysis.db"
-git push
 ```
+
+동작 흐름:
+
+| 조건 | 동작 |
+|------|------|
+| `dashboard.json` 없음 | DB 복사 건너뜀 |
+| 경로가 유효하지 않음 | 경고 로그, 건너뜀 |
+| git repo 아님 | DB 복사만, push 건너뜀 |
+| DB 변경 없음 | push 건너뜀 |
+| DB 변경 있음 | 복사 → git add → commit → push |
 
 ### 수동 복사
 
@@ -97,6 +101,10 @@ git push
 
 ```bash
 cp /path/to/garmin-drive-sync/analysis.db /path/to/garmin-running-dashboard/
+cd /path/to/garmin-running-dashboard
+git add analysis.db
+git commit -m "[data] update analysis.db"
+git push
 ```
 
 Streamlit Cloud는 push 감지 시 자동으로 재배포합니다.
