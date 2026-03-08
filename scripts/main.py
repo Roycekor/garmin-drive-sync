@@ -234,6 +234,9 @@ def run_once():
                 year = datetime.now().year
 
             if str(aid) in uploaded:
+                if not first_run:
+                    logger.info(f"[{processed}/{total_acts}] 활동 {aid}: 이미 업로드됨 — 이후 활동 모두 건너뜀")
+                    break
                 logger.info(f"[{processed}/{total_acts}] 활동 {aid}: 이미 업로드됨, 건너뜀")
                 continue
 
