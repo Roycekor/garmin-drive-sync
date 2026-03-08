@@ -10,6 +10,7 @@ macOS에서 Garmin 러닝 활동을 자동으로 다운로드해 Google Drive에
 - **러닝 분석 대시보드** — Zone2 페이스 추이, HR drift, 주간거리, 페이스 안정성
 - **중복 방지** — 업로드한 활동 ID를 로컬에 기록하여 재업로드 방지
 - **자동 실행** — macOS launchd로 정기 동기화 가능
+- **Telegram Bot** — 텔레그램에서 동기화/분석을 원격 실행
 
 ---
 
@@ -21,7 +22,8 @@ garmin-drive-sync/
 │  ├─ main.py              # 진입점 (동기화 + 분석)
 │  ├─ garmin_client.py     # Garmin Connect 연동
 │  ├─ drive_uploader.py    # Google Drive 업로드
-│  └─ fit_analyzer.py      # FIT 파일 분석 (Zone2, HR drift, 페이스 안정성)
+│  ├─ fit_analyzer.py      # FIT 파일 분석 (Zone2, HR drift, 페이스 안정성)
+│  └─ telegram_bot.py      # Telegram 봇 (원격 실행)
 ├─ config/
 │  ├─ client_secrets.json  # Google OAuth 클라이언트 설정
 │  └─ dashboard.json       # 대시보드 저장소 경로 설정
@@ -190,6 +192,7 @@ Google Drive
 | `pandas` | 데이터 처리 |
 | `streamlit` | 대시보드 UI |
 | `plotly` | 인터랙티브 차트 |
+| `python-telegram-bot` | Telegram 봇 |
 
 ---
 

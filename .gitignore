@@ -217,5 +217,7 @@ tmp/
 venv*/
 .DS_Store
 .sync_initialized
+.analyze_marker
+.telegram_owner_id
 uploaded.json
 analysis.db

@@ -3,26 +3,26 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.user.garmin-sync</string>
+  <string>com.user.telegram-bot</string>
 
   <key>ProgramArguments</key>
   <array>
     <string>/path/to/garmin-drive-sync/venv/bin/python3</string>
-    <string>/path/to/garmin-drive-sync/scripts/main.py</string>
+    <string>/path/to/garmin-drive-sync/scripts/telegram_bot.py</string>
   </array>
 
   <key>RunAtLoad</key>
   <true/>
 
-  <key>StartInterval</key>
-  <integer>21600</integer>
+  <key>KeepAlive</key>
+  <true/>
 
   <key>WorkingDirectory</key>
   <string>/path/to/garmin-drive-sync</string>
 
   <key>StandardOutPath</key>
-  <string>/path/to/garmin-drive-sync/logs/launch_stdout.log</string>
+  <string>/path/to/garmin-drive-sync/logs/telegram_bot_stdout.log</string>
   <key>StandardErrorPath</key>
-  <string>/path/to/garmin-drive-sync/logs/launch_stderr.log</string>
+  <string>/path/to/garmin-drive-sync/logs/telegram_bot_stderr.log</string>
 </dict>
 </plist>

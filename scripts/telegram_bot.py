@@ -1,0 +1,230 @@
+import os
+import sys
+import logging
+import asyncio
+import queue
+from pathlib import Path
+
+from dotenv import load_dotenv
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
+
+# load .env from project root
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
+# project root for imports
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+WORKDIR = Path(os.environ.get("WORKDIR", Path.home() / "garmin-drive-sync"))
+
+# Allowed user ID — set on first /start command, then persists
+OWNER_ID_FILE = WORKDIR / ".telegram_owner_id"
+
+LOG_FORMAT = "%(asctime)s [%(levelname)s] %(message)s"
+
+# root logger → sync.log + console (main.py 로그 포함)
+logging.basicConfig(
+    level=logging.INFO,
+    format=LOG_FORMAT,
+    handlers=[
+        logging.FileHandler(WORKDIR / "logs" / "sync.log"),
+        logging.StreamHandler(),
+    ],
+)
+
+# telegram bot 자체 로그 → telegram_bot.log (sync.log에는 미포함)
+logger = logging.getLogger(__name__)
+logger.propagate = False
+_bot_handler = logging.FileHandler(WORKDIR / "logs" / "telegram_bot.log")
+_bot_handler.setFormatter(logging.Formatter(LOG_FORMAT))
+logger.addHandler(_bot_handler)
+logger.addHandler(logging.StreamHandler())
+
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
+# Progress message batching interval (seconds)
+PROGRESS_INTERVAL = 5
+
+
+class QueueLogHandler(logging.Handler):
+    """main.py logger -> thread-safe queue -> telegram message"""
+
+    def __init__(self, msg_queue: queue.Queue):
+        super().__init__(level=logging.INFO)
+        self.msg_queue = msg_queue
+
+    def emit(self, record):
+        msg = record.getMessage()
+        self.msg_queue.put(msg)
+
+
+def load_owner_id():
+    if OWNER_ID_FILE.exists():
+        return int(OWNER_ID_FILE.read_text().strip())
+    return None
+
+
+def save_owner_id(user_id: int):
+    OWNER_ID_FILE.write_text(str(user_id))
+
+
+OWNER_ID = load_owner_id()
+
+
+def is_owner(update: Update) -> bool:
+    global OWNER_ID
+    if OWNER_ID is None:
+        return False
+    return update.effective_user.id == OWNER_ID
+
+
+async def send_progress(chat_id, bot, msg_queue: queue.Queue, done_event: asyncio.Event):
+    """Drain queue and send batched progress messages to telegram."""
+    while not done_event.is_set():
+        await asyncio.sleep(PROGRESS_INTERVAL)
+        lines = _drain_queue(msg_queue)
+        if lines:
+            text = "\n".join(lines)[:4000]
+            try:
+                await bot.send_message(chat_id=chat_id, text=f"```\n{text}\n```", parse_mode="Markdown")
+            except Exception:
+                pass
+    # flush remaining messages after task completes
+    lines = _drain_queue(msg_queue)
+    if lines:
+        text = "\n".join(lines)[:4000]
+        try:
+            await bot.send_message(chat_id=chat_id, text=f"```\n{text}\n```", parse_mode="Markdown")
+        except Exception:
+            pass
+
+
+def _drain_queue(msg_queue: queue.Queue) -> list[str]:
+    lines = []
+    while True:
+        try:
+            lines.append(msg_queue.get_nowait())
+        except queue.Empty:
+            break
+    return lines
+
+
+async def run_with_progress(update, context, task_name, func):
+    """Run func in executor while streaming logs to telegram."""
+    chat_id = update.effective_chat.id
+    bot = context.bot
+
+    msg_queue = queue.Queue()
+    handler = QueueLogHandler(msg_queue)
+
+    # attach handler to main.py's logger (root logger captures all)
+    main_logger = logging.getLogger()
+    main_logger.addHandler(handler)
+
+    done_event = asyncio.Event()
+    progress_task = asyncio.create_task(send_progress(chat_id, bot, msg_queue, done_event))
+
+    try:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, func)
+        done_event.set()
+        await progress_task
+        await update.message.reply_text(f"{task_name} completed.")
+    except Exception as e:
+        done_event.set()
+        await progress_task
+        logger.exception(f"{task_name} failed")
+        await update.message.reply_text(f"{task_name} failed: {e}")
+    finally:
+        main_logger.removeHandler(handler)
+
+
+async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global OWNER_ID
+    user = update.effective_user
+    if OWNER_ID is None:
+        OWNER_ID = user.id
+        save_owner_id(user.id)
+        logger.info(f"Owner registered: {user.username} (id={user.id})")
+        await update.message.reply_text(
+            f"Garmin Sync Bot ready.\n"
+            f"Owner: {user.username}\n\n"
+            f"{HELP_TEXT}"
+        )
+    elif is_owner(update):
+        await update.message.reply_text(HELP_TEXT)
+    else:
+        await update.message.reply_text("Not authorized.")
+
+
+async def cmd_sync(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_owner(update):
+        return
+
+    await update.message.reply_text("Sync started...")
+    from main import run_once
+
+    await run_with_progress(update, context, "Sync", run_once)
+
+
+async def cmd_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_owner(update):
+        return
+
+    await update.message.reply_text("Analysis started...")
+    from main import analyze_local_files
+
+    await run_with_progress(update, context, "Analysis", analyze_local_files)
+
+
+HELP_TEXT = (
+    "/sync - Garmin sync + Drive upload\n"
+    "/analyze - FIT file analysis only\n"
+    "/status - Show last sync log\n"
+    "/help - Show this help message"
+)
+
+
+async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_owner(update):
+        return
+    await update.message.reply_text(HELP_TEXT)
+
+
+async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_owner(update):
+        return
+
+    log_file = WORKDIR / "logs" / "sync.log"
+    if not log_file.exists():
+        await update.message.reply_text("No sync log found.")
+        return
+
+    from collections import deque
+    with open(log_file, "r") as f:
+        tail_lines = deque(f, maxlen=30)
+    tail = "".join(tail_lines).strip()
+    if len(tail) > 4000:
+        tail = tail[-4000:]
+    await update.message.reply_text(f"```\n{tail}\n```", parse_mode="Markdown")
+
+
+def main():
+    if not TOKEN:
+        print("TELEGRAM_BOT_TOKEN not set in .env")
+        sys.exit(1)
+
+    app = Application.builder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("sync", cmd_sync))
+    app.add_handler(CommandHandler("analyze", cmd_analyze))
+    app.add_handler(CommandHandler("status", cmd_status))
+    app.add_handler(CommandHandler("help", cmd_help))
+
+    logger.info("Telegram bot starting...")
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
+
+
+if __name__ == "__main__":
+    main()

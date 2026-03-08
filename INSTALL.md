@@ -7,9 +7,11 @@
 3. [Google Drive API 설정](#google-drive-api-설정)
 4. [.env 파일 설정](#env-파일-설정)
 5. [초기 실행](#초기-실행)
-6. [macOS launchd 자동 실행 설정](#macos-launchd-자동-실행-설정)
-7. [보안 권장사항](#보안-권장사항)
-8. [문제 발생 시 확인 포인트](#문제-발생-시-확인-포인트)
+6. [자동 실행 방식 비교](#자동-실행-방식-비교)
+7. [macOS launchd 자동 실행 설정 (선택)](#macos-launchd-자동-실행-설정-선택)
+8. [Telegram Bot 설정 (선택)](#telegram-bot-설정-선택)
+9. [보안 권장사항](#보안-권장사항)
+10. [문제 발생 시 확인 포인트](#문제-발생-시-확인-포인트)
 
 ---
 
@@ -157,6 +159,20 @@ python scripts/main.py
 
 ---
 
+## 자동 실행 방식 비교
+
+동기화를 자동으로 실행하는 두 가지 방식을 제공합니다. 둘 다 선택 사항이며, 함께 사용할 수도 있습니다.
+
+| | launchd | Telegram Bot |
+|---|---|---|
+| **실행 방식** | 설정된 간격으로 자동 실행 | 텔레그램 명령으로 수동 트리거 |
+| **실행 시점** | 주기적 (30분~24시간) | 원할 때 즉시 |
+| **원격 제어** | 불가 | 가능 (모바일에서도) |
+| **실행 결과 확인** | 로그 파일 확인 필요 | 텔레그램 채팅으로 즉시 확인 |
+| **적합한 용도** | 정기 백업 자동화 | 필요할 때 수동 실행 + 상태 모니터링 |
+
+---
+
 ## macOS launchd 자동 실행 설정
 
 ### 1단계: plist 파일 수정
@@ -165,29 +181,11 @@ python scripts/main.py
 cp launch_agents/com.user.garmin-sync.plist.example launch_agents/com.user.garmin-sync.plist
 ```
 
-아래 부분을 자신의 환경에 맞게 수정합니다:
+파일 내의 `/path/to/garmin-drive-sync`를 실제 프로젝트 절대경로로 수정합니다:
 
-```xml
-<key>Program</key>
-<string>/Users/YOUR_USERNAME/garmin-drive-sync/venv/bin/python</string>
-
-<key>ProgramArguments</key>
-<array>
-    <string>/Users/YOUR_USERNAME/garmin-drive-sync/venv/bin/python</string>
-    <string>/Users/YOUR_USERNAME/garmin-drive-sync/scripts/main.py</string>
-</array>
-
-<key>WorkingDirectory</key>
-<string>/Users/YOUR_USERNAME/garmin-drive-sync</string>
-
-<key>EnvironmentVariables</key>
-<dict>
-    <key>PATH</key>
-    <string>/Users/YOUR_USERNAME/garmin-drive-sync/venv/bin:/usr/local/bin:/usr/bin:/bin</string>
-</dict>
+```bash
+sed -i '' "s|/path/to/garmin-drive-sync|$(pwd)|g" launch_agents/com.user.garmin-sync.plist
 ```
-
-> `YOUR_USERNAME`을 실제 macOS 사용자명으로 변경하세요. `whoami` 명령으로 확인 가능합니다.
 
 ### 2단계: plist 파일 등록
 
@@ -219,6 +217,13 @@ launchctl start com.user.garmin-sync
 # 중지
 launchctl stop com.user.garmin-sync
 ```
+
+---
+
+## Telegram Bot 설정
+
+텔레그램 봇을 통해 동기화와 분석을 원격으로 실행할 수 있습니다.
+자세한 설정 방법은 [TELEGRAM_BOT.md](TELEGRAM_BOT.md)를 참고하세요.
 
 ---
 
