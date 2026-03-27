@@ -219,5 +219,6 @@ venv*/
 .sync_initialized
 .analyze_marker
 .telegram_owner_id
+.garmin_tokens/
 uploaded.json
 analysis.db

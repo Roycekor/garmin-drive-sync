@@ -199,22 +199,16 @@ def run_once():
         return
 
     uploaded = load_uploaded()
-    g = GarminClient(GARMIN_USER, GARMIN_PASS)
+    g = GarminClient(GARMIN_USER, GARMIN_PASS, tokenstore=WORKDIR / ".garmin_tokens")
 
-    # 로그인 (429 rate limit 시 재시도)
-    max_retries = 3
-    for attempt in range(1, max_retries + 1):
-        try:
-            g.login()
-            break
-        except Exception as e:
-            if "429" in str(e) and attempt < max_retries:
-                wait = 30 * attempt
-                logger.warning(f"Garmin 로그인 429 rate limit — {wait}초 후 재시도 ({attempt}/{max_retries})")
-                import time; time.sleep(wait)
-            else:
-                logger.error(f"Garmin 로그인 실패: {e}")
-                return
+    try:
+        g.login()
+    except Exception as e:
+        if "429" in str(e):
+            logger.error("Garmin 로그인 실패: 429 Too Many Requests — 잠시 후 다시 시도하세요.")
+        else:
+            logger.error(f"Garmin 로그인 실패: {e}")
+        return
 
     # 활동 목록 가져오기
     first_run = is_first_run()

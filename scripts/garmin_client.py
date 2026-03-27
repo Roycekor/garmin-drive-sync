@@ -8,16 +8,34 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 class GarminClient:
-    def __init__(self, username: str, password: str):
+    def __init__(self, username: str, password: str, tokenstore: str | Path = None):
         self.username = username
         self.password = password
+        self.tokenstore = Path(tokenstore) if tokenstore else None
         self.client = None
 
     def login(self):
+        # 1) 저장된 토큰으로 로그인 시도 (SSO 호출 없음)
+        if self.tokenstore and self.tokenstore.exists():
+            try:
+                self.client = Garmin()
+                self.client.login(str(self.tokenstore))
+                logger.info("Garmin 토큰 로그인 성공 (캐시)")
+                return
+            except Exception:
+                logger.info("저장된 토큰 만료 — credential 로그인으로 전환")
+
+        # 2) credential 로그인
         self.client = Garmin(self.username, self.password)
-        logger.info("Garmin 로그인 시도")
+        logger.info("Garmin credential 로그인 시도")
         self.client.login()
         logger.info("Garmin 로그인 성공")
+
+        # 토큰 저장 (다음 실행에서 재사용)
+        if self.tokenstore:
+            self.tokenstore.mkdir(parents=True, exist_ok=True)
+            self.client.garth.dump(str(self.tokenstore))
+            logger.info(f"Garmin 토큰 저장 완료: {self.tokenstore}")
 
     def list_recent_activities(self, limit=20):
         return self.client.get_activities(0, limit)
