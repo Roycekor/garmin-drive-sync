@@ -166,6 +166,7 @@ def sync_db_to_dashboard():
             ['git', 'commit', '-m', '[data] update analysis.db'],
             cwd=str(repo_path), check=True
         )
+        subprocess.run(['git', 'pull', '--rebase'], cwd=str(repo_path), check=True)
         subprocess.run(['git', 'push'], cwd=str(repo_path), check=True)
         logger.info("대시보드 저장소 git push 완료")
     except Exception as e:
@@ -199,11 +200,21 @@ def run_once():
 
     uploaded = load_uploaded()
     g = GarminClient(GARMIN_USER, GARMIN_PASS)
-    try:
-        g.login()
-    except Exception as e:
-        logger.exception(f"Garmin 로그인 실패: {e}")
-        return
+
+    # 로그인 (429 rate limit 시 재시도)
+    max_retries = 3
+    for attempt in range(1, max_retries + 1):
+        try:
+            g.login()
+            break
+        except Exception as e:
+            if "429" in str(e) and attempt < max_retries:
+                wait = 30 * attempt
+                logger.warning(f"Garmin 로그인 429 rate limit — {wait}초 후 재시도 ({attempt}/{max_retries})")
+                import time; time.sleep(wait)
+            else:
+                logger.error(f"Garmin 로그인 실패: {e}")
+                return
 
     # 활동 목록 가져오기
     first_run = is_first_run()
@@ -213,7 +224,7 @@ def run_once():
     else:
         logger.info("📊 정기 동기화 모드: 최근 20개 활동을 받아옵니다...")
         acts = g.list_recent_activities(limit=20)
-    
+
     uploader = DriveUploader()
     new_uploaded = set(uploaded)
     total_acts = len(acts)
