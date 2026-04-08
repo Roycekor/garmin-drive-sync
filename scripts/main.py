@@ -93,7 +93,6 @@ def analyze_local_files():
     total_files = len(fit_files)
     for i, fit_path in enumerate(fit_files, 1):
         try:
-            # 파일명에서 activityId 추출 (activity_{aid}_... 또는 {aid}.fit)
             filename = fit_path.name
             # FIT 파일에서 활동 타입 확인 — running만 분석
             sport = get_fit_sport(str(fit_path))
@@ -160,7 +159,13 @@ def sync_db_to_dashboard():
             ['git', 'commit', '-m', '[data] update analysis.db'],
             cwd=str(repo_path), check=True
         )
-        subprocess.run(['git', 'pull', '--rebase'], cwd=str(repo_path), check=True)
+        rebase = subprocess.run(
+            ['git', 'pull', '--rebase'], cwd=str(repo_path), capture_output=True
+        )
+        if rebase.returncode != 0:
+            subprocess.run(['git', 'rebase', '--abort'], cwd=str(repo_path), capture_output=True)
+            logger.warning("git pull --rebase 실패, rebase 취소함. 수동 push 필요.")
+            return
         subprocess.run(['git', 'push'], cwd=str(repo_path), check=True)
         logger.info("대시보드 저장소 git push 완료")
     except Exception as e:
@@ -176,7 +181,9 @@ def load_uploaded():
     return set()
 
 def save_uploaded(s):
-    DBFILE.write_text(json.dumps(list(s)))
+    tmp = DBFILE.with_suffix('.tmp')
+    tmp.write_text(json.dumps(list(s)))
+    tmp.replace(DBFILE)
 
 def is_first_run():
     """초기 동기화 여부 확인"""
@@ -213,7 +220,13 @@ def run_once():
         logger.info("📊 정기 동기화 모드: 최근 20개 활동을 받아옵니다...")
         acts = g.list_recent_activities(limit=20)
 
-    uploader = DriveUploader()
+    try:
+        uploader = DriveUploader()
+    except Exception as e:
+        logger.error(f"Google Drive 인증 실패: {e}")
+        analyze_local_files()
+        return
+
     new_uploaded = set(uploaded)
     total_acts = len(acts)
     processed = 0

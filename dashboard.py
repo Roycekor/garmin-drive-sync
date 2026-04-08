@@ -13,16 +13,11 @@ st.set_page_config(page_title="Running Analytics", layout="wide")
 st.title("Running Analytics Dashboard")
 
 
-@st.cache_resource
-def get_connection():
-    return sqlite3.connect(str(DB_PATH), check_same_thread=False)
-
-
 @st.cache_data(ttl=300)
 def load_data():
-    conn = get_connection()
     try:
-        df = pd.read_sql_query("SELECT * FROM run_analysis ORDER BY activity_date", conn)
+        with sqlite3.connect(str(DB_PATH)) as conn:
+            df = pd.read_sql_query("SELECT * FROM run_analysis ORDER BY activity_date", conn)
     except Exception:
         st.error("run_analysis 테이블이 없습니다. `python scripts/main.py --analyze-only`를 먼저 실행하세요.")
         return pd.DataFrame()
@@ -48,8 +43,9 @@ def minutes_to_pace_str(minutes):
     """6.783 -> '6:47'"""
     if pd.isna(minutes):
         return ""
-    m = int(minutes)
-    s = round((minutes - m) * 60)
+    total_seconds = round(minutes * 60)
+    m = total_seconds // 60
+    s = total_seconds % 60
     return f"{m}:{s:02d}"
 
 
@@ -155,13 +151,13 @@ if not wd.empty:
     fig3.update_traces(marker_color='#636EFA')
     km_max = weekly['total_km'].max()
     fig3.update_yaxes(range=[0, km_max * 1.3])
-    fig3.update_xaxes(range=[_x_min, _x_max])
+    fig3.update_xaxes()
     fig3.update_layout(height=400, margin=dict(t=20))
     st.plotly_chart(fig3, use_container_width=True)
 else:
     st.info("Distance data not available.")
 
-# --- 4. Pace Stability (10km+) ---
+# --- 4. Pace Stability (8km+) ---
 st.header("4. Long Run Pace Stability (8km+)")
 st.caption("Lower CV = more consistent pacing. CV < 7.5% = stable.")
 

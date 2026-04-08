@@ -61,7 +61,10 @@ class QueueLogHandler(logging.Handler):
 
 def load_owner_id():
     if OWNER_ID_FILE.exists():
-        return int(OWNER_ID_FILE.read_text().strip())
+        try:
+            return int(OWNER_ID_FILE.read_text().strip())
+        except (ValueError, OSError):
+            logger.warning(f"OWNER_ID 파일 읽기 실패: {OWNER_ID_FILE}")
     return None
 
 
@@ -71,6 +74,13 @@ def save_owner_id(user_id: int):
 
 OWNER_ID = load_owner_id()
 
+HELP_TEXT = (
+    "/sync - Garmin sync + Drive upload\n"
+    "/analyze - FIT file analysis only\n"
+    "/status - Show last sync log\n"
+    "/help - Show this help message"
+)
+
 
 def is_owner(update: Update) -> bool:
     global OWNER_ID
@@ -79,25 +89,34 @@ def is_owner(update: Update) -> bool:
     return update.effective_user.id == OWNER_ID
 
 
+def _escape_markdown(text: str) -> str:
+    """Markdown code block 안에서 백틱을 이스케이프"""
+    return text.replace("`", "'")
+
+
+async def _send_log_message(bot, chat_id, text: str):
+    """로그 텍스트를 Telegram으로 전송 (Markdown 실패 시 plain text fallback)"""
+    safe = _escape_markdown(text[:4000])
+    try:
+        await bot.send_message(chat_id=chat_id, text=f"```\n{safe}\n```", parse_mode="Markdown")
+    except Exception:
+        try:
+            await bot.send_message(chat_id=chat_id, text=safe)
+        except Exception:
+            pass
+
+
 async def send_progress(chat_id, bot, msg_queue: queue.Queue, done_event: asyncio.Event):
     """Drain queue and send batched progress messages to telegram."""
     while not done_event.is_set():
         await asyncio.sleep(PROGRESS_INTERVAL)
         lines = _drain_queue(msg_queue)
         if lines:
-            text = "\n".join(lines)[:4000]
-            try:
-                await bot.send_message(chat_id=chat_id, text=f"```\n{text}\n```", parse_mode="Markdown")
-            except Exception:
-                pass
+            await _send_log_message(bot, chat_id, "\n".join(lines))
     # flush remaining messages after task completes
     lines = _drain_queue(msg_queue)
     if lines:
-        text = "\n".join(lines)[:4000]
-        try:
-            await bot.send_message(chat_id=chat_id, text=f"```\n{text}\n```", parse_mode="Markdown")
-        except Exception:
-            pass
+        await _send_log_message(bot, chat_id, "\n".join(lines))
 
 
 def _drain_queue(msg_queue: queue.Queue) -> list[str]:
@@ -163,7 +182,11 @@ async def cmd_sync(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await update.message.reply_text("Sync started...")
-    from main import run_once
+    try:
+        from main import run_once
+    except ImportError as e:
+        await update.message.reply_text(f"Import error: {e}")
+        return
 
     await run_with_progress(update, context, "Sync", run_once)
 
@@ -173,17 +196,13 @@ async def cmd_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await update.message.reply_text("Analysis started...")
-    from main import analyze_local_files
+    try:
+        from main import analyze_local_files
+    except ImportError as e:
+        await update.message.reply_text(f"Import error: {e}")
+        return
 
     await run_with_progress(update, context, "Analysis", analyze_local_files)
-
-
-HELP_TEXT = (
-    "/sync - Garmin sync + Drive upload\n"
-    "/analyze - FIT file analysis only\n"
-    "/status - Show last sync log\n"
-    "/help - Show this help message"
-)
 
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -207,7 +226,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tail = "".join(tail_lines).strip()
     if len(tail) > 4000:
         tail = tail[-4000:]
-    await update.message.reply_text(f"```\n{tail}\n```", parse_mode="Markdown")
+    await _send_log_message(context.bot, update.effective_chat.id, tail)
 
 
 def main():

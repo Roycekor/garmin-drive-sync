@@ -1,9 +1,10 @@
 # scripts/fit_analyzer.py
-from fitparse import FitFile
-import pandas as pd
 import logging
 import sqlite3
 from datetime import datetime
+
+import pandas as pd
+from fitparse import FitFile
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +109,7 @@ def hr_drift(df):
 
 
 def pace_stability(df, min_distance_km=8):
-    """1km 구간별 페이스의 변동계수(CV) 계산. 10km 미만 활동은 None 반환"""
+    """1km 구간별 페이스의 변동계수(CV) 계산. min_distance_km 미만 활동은 None 반환"""
     if df.empty or 'distance' not in df.columns or 'timestamp' not in df.columns:
         return None
     total_dist = df['distance'].iloc[-1] / 1000
@@ -187,15 +188,32 @@ def save_zone2_analysis(db_path, filename, analysis_result):
     with sqlite3.connect(db_path) as conn:
         cursor = conn.cursor()
 
-        # 테이블 생성 (없으면)
+        # 테이블 생성 (없으면) + 기존 테이블 UNIQUE 제약 마이그레이션
         cursor.execute('''CREATE TABLE IF NOT EXISTS zone2_analysis (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            filename TEXT NOT NULL,
+            filename TEXT UNIQUE NOT NULL,
             zone2_seconds INTEGER,
             zone2_avg_speed_kmh REAL,
             zone2_avg_pace_min_km TEXT,
             analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )''')
+        # 기존 DB에 UNIQUE 인덱스가 없으면 추가 (중복 행 방지)
+        try:
+            cursor.execute('''
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_zone2_filename
+                ON zone2_analysis(filename)
+            ''')
+        except sqlite3.IntegrityError:
+            # 기존 중복 행 정리 후 재시도
+            cursor.execute('''
+                DELETE FROM zone2_analysis WHERE id NOT IN (
+                    SELECT MAX(id) FROM zone2_analysis GROUP BY filename
+                )
+            ''')
+            cursor.execute('''
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_zone2_filename
+                ON zone2_analysis(filename)
+            ''')
 
         # 중복 방지: 같은 파일명으로 이미 분석된 게 있으면 업데이트
         cursor.execute('''INSERT OR REPLACE INTO zone2_analysis
