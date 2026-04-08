@@ -41,6 +41,41 @@ def fit_to_dataframe(fit_path):
         df['_time_delta'] = df['timestamp'].diff().dt.total_seconds().fillna(0).clip(upper=_MAX_RECORD_GAP_SEC)
     return df
 
+def zone_distribution(df):
+    """심박수 레코드에서 5-zone 분포(%) 계산.
+
+    Zone 경계 (Karvonen + LT1 추정 기반):
+      Z1: ~136, Z2: 137-153, Z2b: 154-159, Z3: 160-170, Z4+: 171+
+    """
+    zones = {
+        'z1_pct': (0, 136),
+        'z2_pct': (137, 153),
+        'z2b_pct': (154, 159),
+        'z3_pct': (160, 170),
+        'z4plus_pct': (171, 999),
+    }
+    empty = {k: 0.0 for k in zones}
+    if df.empty or 'heart_rate' not in df.columns:
+        return empty
+
+    # NaN heart_rate 제외 — 포함하면 denominator만 부풀려 비율이 100% 미만이 됨
+    valid = df[df['heart_rate'].notna()]
+    if valid.empty:
+        return empty
+
+    has_td = '_time_delta' in valid.columns
+    total = valid['_time_delta'].sum() if has_td else float(len(valid))
+    if total <= 0:
+        return empty
+
+    result = {}
+    for key, (lo, hi) in zones.items():
+        mask = (valid['heart_rate'] >= lo) & (valid['heart_rate'] <= hi)
+        val = valid.loc[mask, '_time_delta'].sum() if has_td else float(mask.sum())
+        result[key] = round(val / total * 100, 1)
+    return result
+
+
 def zone2_summary(df, hr_low=137, hr_high=156):
     empty_result = {
         'zone2_seconds': 0, 'zone2_ratio': 0.0,
@@ -102,7 +137,7 @@ def run_summary(df):
     }
     if 'distance' in df.columns:
         result['total_distance_km'] = round(df['distance'].iloc[-1] / 1000, 2)
-    if 'heart_rate' in df.columns:
+    if 'heart_rate' in df.columns and df['heart_rate'].notna().any():
         result['avg_hr'] = round(df['heart_rate'].mean(), 1)
         result['max_hr'] = int(df['heart_rate'].max())
     if 'cadence' in df.columns:
@@ -174,13 +209,24 @@ def save_run_analysis(db_path, filename, data):
             zone2_ratio REAL,
             zone2_avg_speed_kmh REAL,
             zone2_avg_pace_min_km TEXT,
+            z1_pct REAL,
+            z2_pct REAL,
+            z2b_pct REAL,
+            z3_pct REAL,
+            z4plus_pct REAL,
             analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )''')
+        # 기존 테이블에 zone 컬럼이 없으면 추가
+        existing = {row[1] for row in cursor.execute('PRAGMA table_info(run_analysis)')}
+        for col in ('z1_pct', 'z2_pct', 'z2b_pct', 'z3_pct', 'z4plus_pct'):
+            if col not in existing:
+                cursor.execute(f'ALTER TABLE run_analysis ADD COLUMN {col} REAL')
         cursor.execute('''INSERT INTO run_analysis
             (filename, activity_date, total_distance_km, total_duration_sec,
              avg_hr, max_hr, avg_cadence, hr_drift_percent, pace_stability_cv,
-             zone2_seconds, zone2_ratio, zone2_avg_speed_kmh, zone2_avg_pace_min_km, analyzed_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             zone2_seconds, zone2_ratio, zone2_avg_speed_kmh, zone2_avg_pace_min_km,
+             z1_pct, z2_pct, z2b_pct, z3_pct, z4plus_pct, analyzed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(filename) DO UPDATE SET
              activity_date=excluded.activity_date,
              total_distance_km=excluded.total_distance_km,
@@ -193,6 +239,9 @@ def save_run_analysis(db_path, filename, data):
              zone2_ratio=excluded.zone2_ratio,
              zone2_avg_speed_kmh=excluded.zone2_avg_speed_kmh,
              zone2_avg_pace_min_km=excluded.zone2_avg_pace_min_km,
+             z1_pct=excluded.z1_pct, z2_pct=excluded.z2_pct,
+             z2b_pct=excluded.z2b_pct, z3_pct=excluded.z3_pct,
+             z4plus_pct=excluded.z4plus_pct,
              analyzed_at=excluded.analyzed_at''',
             (filename,
              data.get('activity_date'),
@@ -207,6 +256,11 @@ def save_run_analysis(db_path, filename, data):
              data.get('zone2_ratio'),
              data.get('zone2_avg_speed_kmh'),
              data.get('zone2_avg_pace_min_km'),
+             data.get('z1_pct'),
+             data.get('z2_pct'),
+             data.get('z2b_pct'),
+             data.get('z3_pct'),
+             data.get('z4plus_pct'),
              datetime.now().isoformat()))
         conn.commit()
     logger.info(f"통합 분석 결과 DB에 저장: {filename}")

@@ -12,7 +12,8 @@ from dotenv import load_dotenv
 from garmin_client import GarminClient
 from drive_uploader import DriveUploader
 from fit_analyzer import (fit_to_dataframe, get_fit_sport, zone2_summary, save_zone2_analysis,
-                          run_summary, hr_drift, pace_stability, save_run_analysis)
+                          run_summary, hr_drift, pace_stability, zone_distribution,
+                          save_run_analysis)
 
 # load .env from project root
 load_dotenv()
@@ -133,7 +134,8 @@ def analyze_local_files():
             summary = run_summary(df)
             drift = hr_drift(df)
             stability = pace_stability(df)
-            data = {**summary, **summ, 'hr_drift_percent': drift, 'pace_stability_cv': stability}
+            zdist = zone_distribution(df)
+            data = {**summary, **summ, **zdist, 'hr_drift_percent': drift, 'pace_stability_cv': stability}
             save_run_analysis(str(DB_ANALYSIS), filename, data)
 
             # 기존 zone2 테이블에도 저장 (하위호환)
