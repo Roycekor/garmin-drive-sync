@@ -35,7 +35,7 @@ def fetch_consumer_credentials() -> tuple[str, str]:
     resp = requests.get("https://thegarth.s3.amazonaws.com/oauth_consumer.json")
     resp.raise_for_status()
     data = resp.json()
-    print(f"Consumer credentials 획득")
+    print("Consumer credentials 획득")
     return data["consumer_key"], data["consumer_secret"]
 
 

@@ -8,14 +8,13 @@ import argparse
 from pathlib import Path
 from datetime import datetime
 from dotenv import load_dotenv
-
-# load .env from project root
-load_dotenv()
-
 from garmin_client import GarminClient
 from drive_uploader import DriveUploader
 from fit_analyzer import (fit_to_dataframe, get_fit_sport, zone2_summary, save_zone2_analysis,
                           run_summary, hr_drift, pace_stability, save_run_analysis)
+
+# load .env from project root
+load_dotenv()
 
 # 활동 타입 매핑
 ACTIVITY_TYPE_MAPPING = {
@@ -96,11 +95,6 @@ def analyze_local_files():
         try:
             # 파일명에서 activityId 추출 (activity_{aid}_... 또는 {aid}.fit)
             filename = fit_path.name
-            if filename.startswith("activity_"):
-                aid = filename.split("_")[1]
-            else:
-                aid = filename.split(".")[0]
-            
             # FIT 파일에서 활동 타입 확인 — running만 분석
             sport = get_fit_sport(str(fit_path))
             if sport != 'running':
@@ -122,10 +116,10 @@ def analyze_local_files():
 
             # 기존 zone2 테이블에도 저장 (하위호환)
             save_zone2_analysis(str(DB_ANALYSIS), filename, summ)
-            
+
         except Exception as e:
             logger.warning(f"[{i}/{total_files}] 파일 {filename} 분석 실패: {e}")
-    
+
     ANALYZE_MARKER.touch()
     logger.info("✅ 로컬 FIT 파일 분석 완료")
     sync_db_to_dashboard()
@@ -245,21 +239,32 @@ def run_once():
                 logger.info(f"[{processed}/{total_acts}] 활동 {aid}: 이미 업로드됨, 건너뜀")
                 continue
 
-            filename = f"activity_{aid}_{datetime.fromisoformat(start_time.split('.')[0]).strftime('%Y-%m-%d')}.fit" if start_time else f"{aid}.fit"
+            if start_time:
+                date_str = datetime.fromisoformat(start_time.split('.')[0]).strftime('%Y-%m-%d')
+                filename = f"activity_{aid}_{date_str}.fit"
+            else:
+                filename = f"{aid}.fit"
             local_path = TMPDIR / filename
             try:
                 logger.info(f"[{processed}/{total_acts}] 활동 {aid}: 다운로드 중...")
                 g.download_activity_fit(aid, str(local_path))
 
-                logger.info(f"[{processed}/{total_acts}] 활동 {aid}: 파일 크기 {local_path.stat().st_size / 1024:.1f} KB")
+                file_kb = local_path.stat().st_size / 1024
+                logger.info(f"[{processed}/{total_acts}] 활동 {aid}: 파일 크기 {file_kb:.1f} KB")
 
                 # 활동 타입별로 폴더 결정
                 activity_type_key = a.get('activityType', {}).get('typeKey', 'unknown')
                 activity_folder = ACTIVITY_TYPE_MAPPING.get(activity_type_key, 'Other')
                 path_list = ['Garmin', activity_folder, str(year)]
-                logger.info(f"[{processed}/{total_acts}] 활동 {aid}: Google Drive에 업로드 중 ({activity_type_key} → {'/'.join(path_list)})...")
+                drive_path = '/'.join(path_list)
+                logger.info(
+                    f"[{processed}/{total_acts}] 활동 {aid}: "
+                    f"Google Drive에 업로드 중 ({activity_type_key} → {drive_path})..."
+                )
 
-                uploaded_file_id = uploader.upload_file_with_path(str(local_path), path_list, root_parent_id=DRIVE_PARENT_FOLDER_ID)
+                uploaded_file_id = uploader.upload_file_with_path(
+                    str(local_path), path_list, root_parent_id=DRIVE_PARENT_FOLDER_ID
+                )
                 logger.info(f"[{processed}/{total_acts}] 활동 {aid}: ✅ 업로드 완료 (file_id={uploaded_file_id})")
 
                 uploaded_count += 1
@@ -273,7 +278,8 @@ def run_once():
         if first_run and uploaded_count > 0:
             mark_initialized()
 
-        logger.info(f"✅ 작업 완료. (새로 업로드: {uploaded_count}개, 이미 업로드된 활동: {len(new_uploaded) - uploaded_count}개)")
+        already = len(new_uploaded) - uploaded_count
+        logger.info(f"✅ 작업 완료. (새로 업로드: {uploaded_count}개, 이미 업로드된 활동: {already}개)")
     finally:
         # 다운로드된 FIT 파일 분석 (업로드 중 에러가 발생해도 분석은 실행)
         analyze_local_files()

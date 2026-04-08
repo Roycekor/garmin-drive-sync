@@ -58,10 +58,9 @@ class GarminClient:
             activity_id,
             dl_fmt=self.client.ActivityDownloadFormat.ORIGINAL
         )
-        
+
         # ORIGINAL 형식은 ZIP 파일이므로 압축 해제
         try:
-            out_path_obj = Path(out_path)
             with zipfile.ZipFile(io.BytesIO(fit_data)) as zip_ref:
                 # ZIP 내 .fit 파일 찾기
                 fit_files = [f for f in zip_ref.namelist() if f.endswith('.fit')]

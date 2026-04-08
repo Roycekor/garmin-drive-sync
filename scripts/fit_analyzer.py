@@ -34,29 +34,38 @@ def fit_to_dataframe(fit_path):
     return df
 
 def zone2_summary(df, hr_low=137, hr_high=156):
+    empty_result = {
+        'zone2_seconds': 0, 'zone2_ratio': 0.0,
+        'zone2_avg_speed_kmh': None, 'zone2_avg_pace_min_km': None,
+    }
     if df.empty or 'heart_rate' not in df.columns:
-        return {'zone2_seconds': 0, 'zone2_avg_speed_kmh': None, 'zone2_avg_pace_min_km': None}
+        return empty_result
     zone2 = df[(df['heart_rate'] >= hr_low) & (df['heart_rate'] <= hr_high)]
     if zone2.empty:
-        return {'zone2_seconds': 0, 'zone2_avg_speed_kmh': None, 'zone2_avg_pace_min_km': None}
+        return empty_result
     # Garmin FIT 파일에서는 'enhanced_speed' 필드를 사용 (단위: m/s → km/h 변환)
     speed_col = 'enhanced_speed' if 'enhanced_speed' in zone2.columns else 'speed'
     if speed_col not in zone2.columns:
-        return {'zone2_seconds': int(len(zone2)), 'zone2_avg_speed_kmh': None, 'zone2_avg_pace_min_km': None}
+        zone2_ratio = len(zone2) / len(df) * 100 if len(df) > 0 else 0
+        return {
+            'zone2_seconds': int(len(zone2)), 'zone2_ratio': round(zone2_ratio, 1),
+            'zone2_avg_speed_kmh': None, 'zone2_avg_pace_min_km': None,
+        }
     avg_speed_ms = zone2[speed_col].mean()
     # m/s를 km/h로 변환 (1 m/s = 3.6 km/h)
     avg_speed_kmh = avg_speed_ms * 3.6 if pd.notna(avg_speed_ms) else None
     # km/h를 min/km로 변환 (러닝 pace)
     avg_pace_min_km = 60 / avg_speed_kmh if avg_speed_kmh and avg_speed_kmh > 0 else None
-    
+
     # 포맷팅
     formatted_speed_kmh = float(round(avg_speed_kmh, 2)) if avg_speed_kmh is not None else None
     formatted_pace = None
     if avg_pace_min_km is not None:
-        minutes = int(avg_pace_min_km)
-        seconds = round((avg_pace_min_km - minutes) * 60)
+        total_seconds = round(avg_pace_min_km * 60)
+        minutes = total_seconds // 60
+        seconds = total_seconds % 60
         formatted_pace = f"{minutes}:{seconds:02d}"
-    
+
     zone2_ratio = len(zone2) / len(df) * 100 if len(df) > 0 else 0
 
     return {
@@ -131,74 +140,72 @@ def pace_stability(df, min_distance_km=8):
 
 def save_run_analysis(db_path, filename, data):
     """통합 분석 결과를 run_analysis 테이블에 저장"""
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS run_analysis (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        filename TEXT UNIQUE NOT NULL,
-        activity_date DATE,
-        total_distance_km REAL,
-        total_duration_sec INTEGER,
-        avg_hr REAL,
-        max_hr REAL,
-        avg_cadence REAL,
-        hr_drift_percent REAL,
-        pace_stability_cv REAL,
-        zone2_seconds INTEGER,
-        zone2_ratio REAL,
-        zone2_avg_speed_kmh REAL,
-        zone2_avg_pace_min_km TEXT,
-        analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )''')
-    cursor.execute('''INSERT OR REPLACE INTO run_analysis
-        (filename, activity_date, total_distance_km, total_duration_sec,
-         avg_hr, max_hr, avg_cadence, hr_drift_percent, pace_stability_cv,
-         zone2_seconds, zone2_ratio, zone2_avg_speed_kmh, zone2_avg_pace_min_km, analyzed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-        (filename,
-         data.get('activity_date'),
-         data.get('total_distance_km'),
-         data.get('total_duration_sec'),
-         data.get('avg_hr'),
-         data.get('max_hr'),
-         data.get('avg_cadence'),
-         data.get('hr_drift_percent'),
-         data.get('pace_stability_cv'),
-         data.get('zone2_seconds'),
-         data.get('zone2_ratio'),
-         data.get('zone2_avg_speed_kmh'),
-         data.get('zone2_avg_pace_min_km'),
-         datetime.now().isoformat()))
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute('''CREATE TABLE IF NOT EXISTS run_analysis (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            filename TEXT UNIQUE NOT NULL,
+            activity_date DATE,
+            total_distance_km REAL,
+            total_duration_sec INTEGER,
+            avg_hr REAL,
+            max_hr REAL,
+            avg_cadence REAL,
+            hr_drift_percent REAL,
+            pace_stability_cv REAL,
+            zone2_seconds INTEGER,
+            zone2_ratio REAL,
+            zone2_avg_speed_kmh REAL,
+            zone2_avg_pace_min_km TEXT,
+            analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )''')
+        cursor.execute('''INSERT OR REPLACE INTO run_analysis
+            (filename, activity_date, total_distance_km, total_duration_sec,
+             avg_hr, max_hr, avg_cadence, hr_drift_percent, pace_stability_cv,
+             zone2_seconds, zone2_ratio, zone2_avg_speed_kmh, zone2_avg_pace_min_km, analyzed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+            (filename,
+             data.get('activity_date'),
+             data.get('total_distance_km'),
+             data.get('total_duration_sec'),
+             data.get('avg_hr'),
+             data.get('max_hr'),
+             data.get('avg_cadence'),
+             data.get('hr_drift_percent'),
+             data.get('pace_stability_cv'),
+             data.get('zone2_seconds'),
+             data.get('zone2_ratio'),
+             data.get('zone2_avg_speed_kmh'),
+             data.get('zone2_avg_pace_min_km'),
+             datetime.now().isoformat()))
+        conn.commit()
     logger.info(f"통합 분석 결과 DB에 저장: {filename}")
 
 
 def save_zone2_analysis(db_path, filename, analysis_result):
     """Zone2 분석 결과를 SQLite 데이터베이스에 저장"""
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
 
-    # 테이블 생성 (없으면)
-    cursor.execute('''CREATE TABLE IF NOT EXISTS zone2_analysis (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        filename TEXT NOT NULL,
-        zone2_seconds INTEGER,
-        zone2_avg_speed_kmh REAL,
-        zone2_avg_pace_min_km TEXT,
-        analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )''')
+        # 테이블 생성 (없으면)
+        cursor.execute('''CREATE TABLE IF NOT EXISTS zone2_analysis (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            filename TEXT NOT NULL,
+            zone2_seconds INTEGER,
+            zone2_avg_speed_kmh REAL,
+            zone2_avg_pace_min_km TEXT,
+            analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )''')
 
-    # 중복 방지: 같은 파일명으로 이미 분석된 게 있으면 업데이트
-    cursor.execute('''INSERT OR REPLACE INTO zone2_analysis
-        (filename, zone2_seconds, zone2_avg_speed_kmh, zone2_avg_pace_min_km, analyzed_at)
-        VALUES (?, ?, ?, ?, ?)''',
-        (filename,
-         analysis_result['zone2_seconds'],
-         analysis_result['zone2_avg_speed_kmh'],
-         analysis_result['zone2_avg_pace_min_km'],
-         datetime.now().isoformat()))
+        # 중복 방지: 같은 파일명으로 이미 분석된 게 있으면 업데이트
+        cursor.execute('''INSERT OR REPLACE INTO zone2_analysis
+            (filename, zone2_seconds, zone2_avg_speed_kmh, zone2_avg_pace_min_km, analyzed_at)
+            VALUES (?, ?, ?, ?, ?)''',
+            (filename,
+             analysis_result['zone2_seconds'],
+             analysis_result['zone2_avg_speed_kmh'],
+             analysis_result['zone2_avg_pace_min_km'],
+             datetime.now().isoformat()))
 
-    conn.commit()
-    conn.close()
+        conn.commit()
     logger.info(f"Zone2 분석 결과 DB에 저장: {filename}")

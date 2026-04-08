@@ -1,9 +1,11 @@
-import streamlit as st
+import datetime as dt
+import sqlite3
+from pathlib import Path
+
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import sqlite3
-from pathlib import Path
+import streamlit as st
 
 DB_PATH = Path(__file__).parent / "analysis.db"
 
@@ -26,7 +28,8 @@ def load_data():
         return pd.DataFrame()
     if 'activity_date' in df.columns:
         df['activity_date'] = pd.to_datetime(df['activity_date'])
-        df['week'] = df['activity_date'].dt.isocalendar().year.astype(str) + '-W' + df['activity_date'].dt.isocalendar().week.astype(str).str.zfill(2)
+        iso = df['activity_date'].dt.isocalendar()
+        df['week'] = iso.year.astype(str) + '-W' + iso.week.astype(str).str.zfill(2)
     return df
 
 
@@ -71,9 +74,8 @@ if df.empty:
     st.warning("No data for the selected filters.")
     st.stop()
 
-import datetime as _dt
-_x_min = df['activity_date'].min() - _dt.timedelta(days=3)
-_x_max = df['activity_date'].max() + _dt.timedelta(days=3)
+_x_min = df['activity_date'].min() - dt.timedelta(days=3)
+_x_max = df['activity_date'].max() + dt.timedelta(days=3)
 
 # --- 1. Zone2 Pace Trend ---
 st.header("1. Zone2 Pace Trend")

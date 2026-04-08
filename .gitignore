@@ -222,3 +222,13 @@ venv*/
 .garmin_tokens/
 uploaded.json
 analysis.db
+
+# Claude Code RSI (Recursive Self-Improvement) process
+.claude/
+CLAUDE.md
+scripts/quality_gate.sh
+scripts/improve.sh
+docs/recursive-improvement-guide.md
+Makefile
+ruff.toml
+tests/
