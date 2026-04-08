@@ -7,6 +7,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from telegram import Update
+from telegram.error import NetworkError
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 # load .env from project root
@@ -229,6 +230,15 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _send_log_message(context.bot, update.effective_chat.id, tail)
 
 
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    """일시적 네트워크 에러는 WARNING, 그 외는 ERROR로 분류"""
+    err = context.error
+    if isinstance(err, NetworkError):
+        logger.warning(f"네트워크 일시 오류 (자동 재시도됨): {err}")
+    else:
+        logger.error(f"예상치 못한 에러: {err}", exc_info=err)
+
+
 def main():
     if not TOKEN:
         print("TELEGRAM_BOT_TOKEN not set in .env")
@@ -240,6 +250,7 @@ def main():
     app.add_handler(CommandHandler("analyze", cmd_analyze))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("help", cmd_help))
+    app.add_error_handler(error_handler)
 
     logger.info("Telegram bot starting...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
