@@ -1,6 +1,7 @@
 # scripts/drive_uploader.py
 import logging
 import os
+import stat
 from typing import Optional
 
 from pydrive2.auth import GoogleAuth
@@ -21,8 +22,14 @@ class DriveUploader:
                 "settings.yaml과 client_secrets.json을 확인하세요."
             ) from e
         self.drive = GoogleDrive(self.gauth)
+        # OAuth 토큰 파일 권한을 소유자만 읽기/쓰기로 제한
+        cred_file = self.gauth.settings.get('save_credentials_file')
+        if cred_file and os.path.exists(cred_file):
+            os.chmod(cred_file, stat.S_IRUSR | stat.S_IWUSR)
 
     def _get_folder_id(self, folder_name: str, parent_id: Optional[str] = None) -> Optional[str]:
+        # folder_name은 ACTIVITY_TYPE_MAPPING 등 내부 상수에서만 호출됨.
+        # 사용자 입력을 직접 받을 경우 추가 이스케이프 필요.
         safe_name = folder_name.replace("\\", "\\\\").replace("'", "\\'")
         q = f"mimeType='application/vnd.google-apps.folder' and trashed=false and title='{safe_name}'"
         if parent_id:

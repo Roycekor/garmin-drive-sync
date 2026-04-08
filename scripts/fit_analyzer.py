@@ -8,6 +8,10 @@ from fitparse import FitFile
 
 logger = logging.getLogger(__name__)
 
+# 레코드 간 최대 허용 시간 간격 (초). 이를 초과하면 auto-pause/GPS 끊김으로 간주하여 클리핑.
+# Garmin smart recording 최대 간격(~7초)을 수용하면서 pause gap을 필터링.
+_MAX_RECORD_GAP_SEC = 10
+
 def get_fit_sport(fit_path):
     """FIT 파일에서 sport 타입을 추출 (예: 'running', 'cycling')"""
     fitfile = FitFile(fit_path)
@@ -32,6 +36,9 @@ def fit_to_dataframe(fit_path):
     if 'timestamp' in df.columns:
         df['timestamp'] = pd.to_datetime(df['timestamp'])
         df['date'] = df['timestamp'].dt.date
+        # 레코드 간 실제 시간 간격 (초). smart recording 대응.
+        # _MAX_RECORD_GAP_SEC 초과 gap은 auto-pause/GPS 끊김으로 클리핑.
+        df['_time_delta'] = df['timestamp'].diff().dt.total_seconds().fillna(0).clip(upper=_MAX_RECORD_GAP_SEC)
     return df
 
 def zone2_summary(df, hr_low=137, hr_high=156):
@@ -44,12 +51,18 @@ def zone2_summary(df, hr_low=137, hr_high=156):
     zone2 = df[(df['heart_rate'] >= hr_low) & (df['heart_rate'] <= hr_high)]
     if zone2.empty:
         return empty_result
+
+    # _time_delta 기반 시간 계산 (smart recording 대응). 없으면 row count fallback
+    has_time_delta = '_time_delta' in df.columns
+    zone2_secs = zone2['_time_delta'].sum() if has_time_delta else float(len(zone2))
+    total_secs = df['_time_delta'].sum() if has_time_delta else float(len(df))
+    zone2_ratio = (zone2_secs / total_secs * 100) if total_secs > 0 else 0
+
     # Garmin FIT 파일에서는 'enhanced_speed' 필드를 사용 (단위: m/s → km/h 변환)
     speed_col = 'enhanced_speed' if 'enhanced_speed' in zone2.columns else 'speed'
     if speed_col not in zone2.columns:
-        zone2_ratio = len(zone2) / len(df) * 100 if len(df) > 0 else 0
         return {
-            'zone2_seconds': int(len(zone2)), 'zone2_ratio': round(zone2_ratio, 1),
+            'zone2_seconds': int(zone2_secs), 'zone2_ratio': round(zone2_ratio, 1),
             'zone2_avg_speed_kmh': None, 'zone2_avg_pace_min_km': None,
         }
     avg_speed_ms = zone2[speed_col].mean()
@@ -67,10 +80,8 @@ def zone2_summary(df, hr_low=137, hr_high=156):
         seconds = total_seconds % 60
         formatted_pace = f"{minutes}:{seconds:02d}"
 
-    zone2_ratio = len(zone2) / len(df) * 100 if len(df) > 0 else 0
-
     return {
-        'zone2_seconds': int(len(zone2)),
+        'zone2_seconds': int(zone2_secs),
         'zone2_ratio': round(zone2_ratio, 1),
         'zone2_avg_speed_kmh': formatted_speed_kmh,
         'zone2_avg_pace_min_km': formatted_pace
@@ -80,9 +91,14 @@ def run_summary(df):
     """활동 전체 요약 추출"""
     if df.empty or 'timestamp' not in df.columns:
         return {}
+    # _time_delta 합계 (auto-pause/GPS gap은 _MAX_RECORD_GAP_SEC로 클리핑됨)
+    if '_time_delta' in df.columns:
+        duration = int(df['_time_delta'].sum())
+    else:
+        duration = int((df['timestamp'].iloc[-1] - df['timestamp'].iloc[0]).total_seconds())
     result = {
         'activity_date': str(df['timestamp'].iloc[0].date()),
-        'total_duration_sec': int((df['timestamp'].iloc[-1] - df['timestamp'].iloc[0]).total_seconds()),
+        'total_duration_sec': duration,
     }
     if 'distance' in df.columns:
         result['total_distance_km'] = round(df['distance'].iloc[-1] / 1000, 2)
@@ -160,11 +176,24 @@ def save_run_analysis(db_path, filename, data):
             zone2_avg_pace_min_km TEXT,
             analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )''')
-        cursor.execute('''INSERT OR REPLACE INTO run_analysis
+        cursor.execute('''INSERT INTO run_analysis
             (filename, activity_date, total_distance_km, total_duration_sec,
              avg_hr, max_hr, avg_cadence, hr_drift_percent, pace_stability_cv,
              zone2_seconds, zone2_ratio, zone2_avg_speed_kmh, zone2_avg_pace_min_km, analyzed_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(filename) DO UPDATE SET
+             activity_date=excluded.activity_date,
+             total_distance_km=excluded.total_distance_km,
+             total_duration_sec=excluded.total_duration_sec,
+             avg_hr=excluded.avg_hr, max_hr=excluded.max_hr,
+             avg_cadence=excluded.avg_cadence,
+             hr_drift_percent=excluded.hr_drift_percent,
+             pace_stability_cv=excluded.pace_stability_cv,
+             zone2_seconds=excluded.zone2_seconds,
+             zone2_ratio=excluded.zone2_ratio,
+             zone2_avg_speed_kmh=excluded.zone2_avg_speed_kmh,
+             zone2_avg_pace_min_km=excluded.zone2_avg_pace_min_km,
+             analyzed_at=excluded.analyzed_at''',
             (filename,
              data.get('activity_date'),
              data.get('total_distance_km'),
@@ -215,10 +244,15 @@ def save_zone2_analysis(db_path, filename, analysis_result):
                 ON zone2_analysis(filename)
             ''')
 
-        # 중복 방지: 같은 파일명으로 이미 분석된 게 있으면 업데이트
-        cursor.execute('''INSERT OR REPLACE INTO zone2_analysis
+        # 중복 방지: 같은 파일명으로 이미 분석된 게 있으면 업데이트 (id 보존)
+        cursor.execute('''INSERT INTO zone2_analysis
             (filename, zone2_seconds, zone2_avg_speed_kmh, zone2_avg_pace_min_km, analyzed_at)
-            VALUES (?, ?, ?, ?, ?)''',
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(filename) DO UPDATE SET
+             zone2_seconds=excluded.zone2_seconds,
+             zone2_avg_speed_kmh=excluded.zone2_avg_speed_kmh,
+             zone2_avg_pace_min_km=excluded.zone2_avg_pace_min_km,
+             analyzed_at=excluded.analyzed_at''',
             (filename,
              analysis_result['zone2_seconds'],
              analysis_result['zone2_avg_speed_kmh'],

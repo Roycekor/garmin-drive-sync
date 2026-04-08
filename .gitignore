@@ -225,6 +225,7 @@ analysis.db
 
 # Claude Code RSI (Recursive Self-Improvement) process
 .claude/
+.improve/
 CLAUDE.md
 scripts/quality_gate.sh
 scripts/improve.sh

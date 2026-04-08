@@ -7,6 +7,7 @@ import subprocess
 import argparse
 from pathlib import Path
 from datetime import datetime
+from dateutil import parser as dateutil_parser
 from dotenv import load_dotenv
 from garmin_client import GarminClient
 from drive_uploader import DriveUploader
@@ -53,23 +54,45 @@ INITFILE = WORKDIR / ".sync_initialized"
 ANALYZE_MARKER = WORKDIR / ".analyze_marker"
 DASHBOARD_CONFIG = WORKDIR / "config" / "dashboard.json"
 
-# 로깅 설정
-LOGDIR = WORKDIR / "logs"
-LOGDIR.mkdir(parents=True, exist_ok=True)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[
-        logging.FileHandler(LOGFILE),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
 
-TMPDIR.mkdir(parents=True, exist_ok=True)
+def _int_env(name: str, default: int) -> int:
+    val = os.environ.get(name)
+    if val is None:
+        return default
+    try:
+        return int(val)
+    except ValueError:
+        logging.warning(f"환경변수 {name}={val!r} 은 정수가 아닙니다. 기본값 {default} 사용")
+        return default
+
+HR_ZONE2_LOW = _int_env('HR_ZONE2_LOW', 137)
+HR_ZONE2_HIGH = _int_env('HR_ZONE2_HIGH', 156)
+
+logger = logging.getLogger(__name__)
+_setup_done = False
+
+
+def setup():
+    """디렉토리 생성 및 로깅 설정 (최초 1회만 실행)"""
+    global _setup_done
+    if _setup_done:
+        return
+    LOGDIR = WORKDIR / "logs"
+    LOGDIR.mkdir(parents=True, exist_ok=True)
+    TMPDIR.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s [%(levelname)s] %(message)s',
+        handlers=[
+            logging.FileHandler(LOGFILE),
+            logging.StreamHandler()
+        ]
+    )
+    _setup_done = True
 
 def analyze_local_files():
     """로컬 FIT 파일들만 분석 (마커 파일 이후 새 파일만)"""
+    setup()
     logger.info("🔍 로컬 FIT 파일 분석 모드 시작...")
     all_fit_files = list(TMPDIR.glob("*.fit"))
     if not all_fit_files:
@@ -103,7 +126,7 @@ def analyze_local_files():
             logger.info(f"[{i}/{total_files}] 파일 {filename} 분석 중...")
 
             df = fit_to_dataframe(str(fit_path))
-            summ = zone2_summary(df)
+            summ = zone2_summary(df, hr_low=HR_ZONE2_LOW, hr_high=HR_ZONE2_HIGH)
             logger.info(f"[{i}/{total_files}] 파일 {filename} Zone2 분석: {summ}")
 
             # 통합 분석
@@ -166,7 +189,14 @@ def sync_db_to_dashboard():
             subprocess.run(['git', 'rebase', '--abort'], cwd=str(repo_path), capture_output=True)
             logger.warning("git pull --rebase 실패, rebase 취소함. 수동 push 필요.")
             return
-        subprocess.run(['git', 'push'], cwd=str(repo_path), check=True)
+        push = subprocess.run(['git', 'push'], cwd=str(repo_path), capture_output=True, text=True)
+        if push.returncode != 0:
+            stderr = push.stderr.strip() if push.stderr else ""
+            logger.warning(
+                f"git push 실패 (returncode={push.returncode}): {stderr}. "
+                f"로컬 커밋은 완료됨 — 수동 push 필요: cd {repo_path} && git push"
+            )
+            return
         logger.info("대시보드 저장소 git push 완료")
     except Exception as e:
         logger.warning(f"대시보드 DB 동기화 실패: {e}")
@@ -195,9 +225,12 @@ def mark_initialized():
     logger.info("초기 동기화 완료. 다음부터 최근 데이터만 동기화합니다.")
 
 def run_once():
+    setup()
     if not GARMIN_USER or not GARMIN_PASS:
         logger.error("환경변수 GARMIN_USER 및 GARMIN_PASS를 .env에 설정하세요.")
         return
+    if not DRIVE_PARENT_FOLDER_ID:
+        logger.warning("DRIVE_PARENT_FOLDER_ID 미설정 — Google Drive 루트에 업로드됩니다.")
 
     uploaded = load_uploaded()
     g = GarminClient(GARMIN_USER, GARMIN_PASS, tokenstore=WORKDIR / ".garmin_tokens")
@@ -237,13 +270,13 @@ def run_once():
             processed += 1
             aid = a.get('activityId')
             start_time = a.get('startTimeLocal') or a.get('startTime') or a.get('startTimeGMT')
-            try:
-                if start_time:
-                    year = datetime.fromisoformat(start_time.split('.')[0]).year
-                else:
-                    year = datetime.now().year
-            except Exception:
-                year = datetime.now().year
+            parsed_dt = None
+            if start_time:
+                try:
+                    parsed_dt = dateutil_parser.isoparse(start_time)
+                except (ValueError, TypeError):
+                    logger.warning(f"활동 {aid}: 날짜 파싱 실패 ({start_time}), 현재 연도 사용")
+            year = parsed_dt.year if parsed_dt else datetime.now().year
 
             if str(aid) in uploaded:
                 if not first_run:
@@ -252,8 +285,8 @@ def run_once():
                 logger.info(f"[{processed}/{total_acts}] 활동 {aid}: 이미 업로드됨, 건너뜀")
                 continue
 
-            if start_time:
-                date_str = datetime.fromisoformat(start_time.split('.')[0]).strftime('%Y-%m-%d')
+            if parsed_dt:
+                date_str = parsed_dt.strftime('%Y-%m-%d')
                 filename = f"activity_{aid}_{date_str}.fit"
             else:
                 filename = f"{aid}.fit"
@@ -300,8 +333,8 @@ def run_once():
 if __name__ == "__main__":
     try:
         os.chdir(WORKDIR)
-    except Exception:
-        pass
+    except OSError as e:
+        logging.warning(f"WORKDIR 변경 실패 ({WORKDIR}): {e}")
 
     args = parse_args()
     if args.analyze_only:

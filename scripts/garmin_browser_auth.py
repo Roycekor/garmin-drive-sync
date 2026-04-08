@@ -8,6 +8,7 @@ SSO 429 차단 우회용. 한 번만 실행하면 이후 토큰 캐시로 동작
 
 import json
 import re
+import stat
 import sys
 from pathlib import Path
 from urllib.parse import urlencode
@@ -96,7 +97,7 @@ def exchange_ticket_for_oauth1(consumer_key: str, consumer_secret: str, ticket: 
     )
     oauth_token = resp["oauth_token"]
     oauth_secret = resp["oauth_token_secret"]
-    print(f"OAuth1 토큰 획득: {oauth_token[:15]}...")
+    print("OAuth1 토큰 획득 완료")
     return oauth_token, oauth_secret
 
 
@@ -128,6 +129,7 @@ def save_garth_tokens(oauth1_token: str, oauth1_secret: str, oauth2_data: dict):
         "oauth_token": oauth1_token,
         "oauth_token_secret": oauth1_secret,
     }, indent=2))
+    oauth1_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
 
     # garth가 요구하는 expires_at 필드 계산
     now = int(time.time())
@@ -136,6 +138,7 @@ def save_garth_tokens(oauth1_token: str, oauth1_secret: str, oauth2_data: dict):
 
     oauth2_path = TOKEN_DIR / "oauth2_token.json"
     oauth2_path.write_text(json.dumps(oauth2_data, indent=2))
+    oauth2_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
 
     print(f"토큰 저장 완료: {TOKEN_DIR}")
 

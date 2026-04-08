@@ -19,8 +19,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 WORKDIR = Path(os.environ.get("WORKDIR", Path.home() / "garmin-drive-sync"))
 
-# Allowed user ID — set on first /start command, then persists
+# 봇 소유자 ID: 환경변수 TELEGRAM_OWNER_ID 우선, 없으면 파일에서 로드
 OWNER_ID_FILE = WORKDIR / ".telegram_owner_id"
+_ENV_OWNER_ID = os.environ.get("TELEGRAM_OWNER_ID")
 
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(message)s"
 
@@ -61,6 +62,13 @@ class QueueLogHandler(logging.Handler):
 
 
 def load_owner_id():
+    # 환경변수 우선
+    if _ENV_OWNER_ID:
+        try:
+            return int(_ENV_OWNER_ID)
+        except ValueError:
+            logger.warning(f"TELEGRAM_OWNER_ID 환경변수 값이 유효하지 않음: {_ENV_OWNER_ID}")
+    # 파일 fallback
     if OWNER_ID_FILE.exists():
         try:
             return int(OWNER_ID_FILE.read_text().strip())
@@ -70,7 +78,11 @@ def load_owner_id():
 
 
 def save_owner_id(user_id: int):
-    OWNER_ID_FILE.write_text(str(user_id))
+    try:
+        OWNER_ID_FILE.write_text(str(user_id))
+    except OSError as e:
+        logger.error(f"OWNER_ID 파일 저장 실패: {e}")
+        raise
 
 
 OWNER_ID = load_owner_id()
@@ -84,7 +96,6 @@ HELP_TEXT = (
 
 
 def is_owner(update: Update) -> bool:
-    global OWNER_ID
     if OWNER_ID is None:
         return False
     return update.effective_user.id == OWNER_ID
@@ -146,7 +157,7 @@ async def run_with_progress(update, context, task_name, func):
     progress_task = asyncio.create_task(send_progress(chat_id, bot, msg_queue, done_event))
 
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, func)
         done_event.set()
         await progress_task
