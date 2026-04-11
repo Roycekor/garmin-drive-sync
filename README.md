@@ -55,14 +55,44 @@ python scripts/main.py
 | 초기 동기화 | 첫 실행 (`.sync_initialized` 없음) | 모든 과거 활동 다운로드 + 업로드 |
 | 정기 동기화 | 이후 실행 | 최근 20개 활동만 조회, 새 활동만 업로드 |
 
-### FIT 파일 분석
+### CLI 옵션
 
 ```bash
-python scripts/main.py --analyze-only
+python scripts/main.py [옵션]
 ```
+
+| 옵션 | 설명 | 기본값 |
+|------|------|--------|
+| `--analyze-only` | Garmin 다운로드/업로드 건너뛰고 로컬 FIT 파일만 분석 | - |
+| `--count N` | 정기 동기화 시 가져올 최근 활동 수 | 20 |
+| `--reanalyze` | 마커 파일 무시, 모든 FIT 파일 재분석 | - |
+| `--verbose`, `-v` | DEBUG 레벨 로깅 활성화 | - |
+
+### 사용 예시
+
+```bash
+# 기본 동기화 (최근 20개 활동)
+python scripts/main.py
+
+# 최근 50개 활동 동기화
+python scripts/main.py --count 50
+
+# 로컬 FIT 파일만 분석 (신규 파일만)
+python scripts/main.py --analyze-only
+
+# 분석 로직/파라미터 변경 후 전체 재분석
+python scripts/main.py --analyze-only --reanalyze
+
+# 디버그 로그 확인
+python scripts/main.py --analyze-only -v
+```
+
+### FIT 파일 분석
 
 로컬 `tmp/` 폴더의 FIT 파일을 분석하여 `analysis.db`에 저장합니다.
 `config/dashboard.json`에 대시보드 저장소 경로가 설정되어 있으면, 분석 완료 후 `analysis.db`를 자동으로 복사합니다.
+
+기본적으로 마커 파일(`.analyze_marker`) 이후에 추가된 신규 파일만 분석합니다. 분석 로직이나 파라미터를 변경한 경우 `--reanalyze`로 전체 재분석이 필요합니다.
 
 ### 대시보드 실행
 
@@ -101,9 +131,9 @@ def zone2_summary(df, hr_low=137, hr_high=156):
 def pace_stability(df, min_distance_km=8):
 ```
 
-변경 후 재분석이 필요합니다:
+변경 후 전체 재분석이 필요합니다:
 ```bash
-python scripts/main.py --analyze-only
+python scripts/main.py --analyze-only --reanalyze
 ```
 
 ### DB 스키마 (`run_analysis` 테이블)

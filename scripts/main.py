@@ -38,9 +38,22 @@ ACTIVITY_TYPE_MAPPING = {
 }
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Garmin to Google Drive Sync')
-    parser.add_argument('--analyze-only', action='store_true', help='로컬 FIT 파일들만 분석 (업로드하지 않음)')
-    return parser.parse_args()
+    parser = argparse.ArgumentParser(
+        description='Garmin 러닝 활동 동기화: FIT 다운로드 → Google Drive 업로드 → 분석 → DB 저장',
+        epilog='예시: %(prog)s --analyze-only --reanalyze'
+    )
+    parser.add_argument('--analyze-only', action='store_true',
+                        help='로컬 FIT 파일들만 분석 (Garmin 다운로드/업로드 건너뜀)')
+    parser.add_argument('--count', type=int, default=20,
+                        help='정기 동기화 시 가져올 최근 활동 수 (기본값: 20)')
+    parser.add_argument('--reanalyze', action='store_true',
+                        help='마커 파일 무시, 모든 FIT 파일 재분석')
+    parser.add_argument('--verbose', '-v', action='store_true',
+                        help='DEBUG 레벨 로깅 활성화')
+    args = parser.parse_args()
+    if args.count < 1:
+        parser.error('--count must be a positive integer')
+    return args
 
 # 환경/경로 설정
 GARMIN_USER = os.environ.get('GARMIN_USER')
@@ -73,7 +86,7 @@ logger = logging.getLogger(__name__)
 _setup_done = False
 
 
-def setup():
+def setup(verbose=False):
     """디렉토리 생성 및 로깅 설정 (최초 1회만 실행)"""
     global _setup_done
     if _setup_done:
@@ -82,7 +95,7 @@ def setup():
     LOGDIR.mkdir(parents=True, exist_ok=True)
     TMPDIR.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.DEBUG if verbose else logging.INFO,
         format='%(asctime)s [%(levelname)s] %(message)s',
         handlers=[
             logging.FileHandler(LOGFILE),
@@ -91,17 +104,20 @@ def setup():
     )
     _setup_done = True
 
-def analyze_local_files():
-    """로컬 FIT 파일들만 분석 (마커 파일 이후 새 파일만)"""
-    setup()
+def analyze_local_files(reanalyze=False, verbose=False):
+    """로컬 FIT 파일들만 분석 (마커 파일 이후 새 파일만, reanalyze=True면 전체)"""
+    setup(verbose=verbose)
     logger.info("🔍 로컬 FIT 파일 분석 모드 시작...")
     all_fit_files = list(TMPDIR.glob("*.fit"))
     if not all_fit_files:
         logger.info("분석할 FIT 파일이 없습니다.")
         return
 
-    # 마커 파일보다 새로운 FIT 파일만 필터링
-    if ANALYZE_MARKER.exists():
+    # 마커 파일보다 새로운 FIT 파일만 필터링 (reanalyze 시 전체)
+    if reanalyze:
+        fit_files = all_fit_files
+        logger.info(f"총 {len(fit_files)}개 FIT 파일 재분석 (--reanalyze)")
+    elif ANALYZE_MARKER.exists():
         marker_mtime = ANALYZE_MARKER.stat().st_mtime
         fit_files = [f for f in all_fit_files if f.stat().st_mtime > marker_mtime]
         logger.info(f"총 {len(all_fit_files)}개 FIT 파일 중 {len(fit_files)}개 신규 파일 발견")
@@ -226,8 +242,8 @@ def mark_initialized():
     INITFILE.touch()
     logger.info("초기 동기화 완료. 다음부터 최근 데이터만 동기화합니다.")
 
-def run_once():
-    setup()
+def run_once(count=20, reanalyze=False, verbose=False):
+    setup(verbose=verbose)
     if not GARMIN_USER or not GARMIN_PASS:
         logger.error("환경변수 GARMIN_USER 및 GARMIN_PASS를 .env에 설정하세요.")
         return
@@ -252,14 +268,14 @@ def run_once():
         logger.info("🔄 초기 동기화 모드: 모든 과거 데이터를 받아옵니다...")
         acts = g.list_all_activities(batch_size=100)
     else:
-        logger.info("📊 정기 동기화 모드: 최근 20개 활동을 받아옵니다...")
-        acts = g.list_recent_activities(limit=20)
+        logger.info(f"📊 정기 동기화 모드: 최근 {count}개 활동을 받아옵니다...")
+        acts = g.list_recent_activities(limit=count)
 
     try:
         uploader = DriveUploader()
     except Exception as e:
         logger.error(f"Google Drive 인증 실패: {e}")
-        analyze_local_files()
+        analyze_local_files(reanalyze=reanalyze, verbose=verbose)
         return
 
     new_uploaded = set(uploaded)
@@ -330,7 +346,7 @@ def run_once():
         logger.info(f"✅ 작업 완료. (새로 업로드: {uploaded_count}개, 이미 업로드된 활동: {already}개)")
     finally:
         # 다운로드된 FIT 파일 분석 (업로드 중 에러가 발생해도 분석은 실행)
-        analyze_local_files()
+        analyze_local_files(reanalyze=reanalyze, verbose=verbose)
 
 if __name__ == "__main__":
     try:
@@ -340,6 +356,6 @@ if __name__ == "__main__":
 
     args = parse_args()
     if args.analyze_only:
-        analyze_local_files()
+        analyze_local_files(reanalyze=args.reanalyze, verbose=args.verbose)
     else:
-        run_once()
+        run_once(count=args.count, reanalyze=args.reanalyze, verbose=args.verbose)
