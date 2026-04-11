@@ -5,10 +5,16 @@
   <key>Label</key>
   <string>com.user.telegram-bot</string>
 
+  <!--
+    /bin/bash 래퍼로 실행:
+    - venv python 바이너리가 코드 서명되지 않은 경우 launchd가 거부(exit 78)하는 문제 우회
+    - `cd` 로 실제 작업 디렉토리를 프로젝트 루트로 고정 (settings.yaml의 상대 경로 해석)
+  -->
   <key>ProgramArguments</key>
   <array>
-    <string>/path/to/garmin-drive-sync/venv/bin/python3</string>
-    <string>/path/to/garmin-drive-sync/scripts/telegram_bot.py</string>
+    <string>/bin/bash</string>
+    <string>-c</string>
+    <string>cd /path/to/garmin-drive-sync &amp;&amp; exec /path/to/garmin-drive-sync/venv/bin/python3 /path/to/garmin-drive-sync/scripts/telegram_bot.py</string>
   </array>
 
   <key>RunAtLoad</key>
@@ -17,12 +23,22 @@
   <key>KeepAlive</key>
   <true/>
 
+  <!--
+    WorkingDirectory는 홈 디렉토리로 설정.
+    macOS TCC가 ~/Downloads 등 보호된 폴더의 launchd cwd 사용을 차단할 수 있어
+    "Operation not permitted" 오류가 발생할 수 있음. 실제 cwd는 위 bash의 `cd`로 고정.
+  -->
   <key>WorkingDirectory</key>
-  <string>/path/to/garmin-drive-sync</string>
+  <string>/Users/your-username</string>
 
+  <!--
+    로그는 ~/Library/Logs 하위에 둘 것.
+    ~/Downloads 등 TCC 보호 폴더에 stdout/stderr 파일을 두면 launchd가 파일을 열지 못해
+    프로세스 spawn 자체가 실패(exit 78 EX_CONFIG)할 수 있음.
+  -->
   <key>StandardOutPath</key>
-  <string>/path/to/garmin-drive-sync/logs/telegram_bot_stdout.log</string>
+  <string>/Users/your-username/Library/Logs/telegram-bot/stdout.log</string>
   <key>StandardErrorPath</key>
-  <string>/path/to/garmin-drive-sync/logs/telegram_bot_stderr.log</string>
+  <string>/Users/your-username/Library/Logs/telegram-bot/stderr.log</string>
 </dict>
 </plist>

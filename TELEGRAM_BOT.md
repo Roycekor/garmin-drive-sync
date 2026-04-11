@@ -49,15 +49,45 @@ nohup python scripts/telegram_bot.py > /dev/null 2>&1 &
 # 1. 샘플 파일 복사
 cp launch_agents/com.user.telegram-bot.plist.example launch_agents/com.user.telegram-bot.plist
 
-# 2. /path/to/garmin-drive-sync를 실제 프로젝트 절대경로로 수정
+# 2. 플레이스홀더를 실제 경로로 치환
 sed -i '' "s|/path/to/garmin-drive-sync|$(pwd)|g" launch_agents/com.user.telegram-bot.plist
+sed -i '' "s|/Users/your-username|$HOME|g" launch_agents/com.user.telegram-bot.plist
 
-# 3. LaunchAgents에 등록
+# 3. 로그 디렉토리 생성
+mkdir -p ~/Library/Logs/telegram-bot
+
+# 4. LaunchAgents에 등록
 cp launch_agents/com.user.telegram-bot.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.user.telegram-bot.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.user.telegram-bot.plist
 ```
 
 `KeepAlive`가 설정되어 있어 프로세스가 종료되면 자동으로 재시작됩니다.
+
+#### 서비스 관리
+
+```bash
+# 상태 확인
+launchctl print gui/$(id -u)/com.user.telegram-bot
+
+# 재시작
+launchctl kickstart -k gui/$(id -u)/com.user.telegram-bot
+
+# 중지
+launchctl bootout gui/$(id -u)/com.user.telegram-bot
+```
+
+#### macOS TCC 권한 관련 주의사항
+
+플레이스홀더 그대로 plist를 만들면 다음 문제를 겪을 수 있습니다:
+
+1. **`exit code 78 (EX_CONFIG)`** — `~/Downloads` 등 macOS TCC가 보호하는 폴더 안에 stdout/stderr 로그 파일을 두면 launchd가 파일을 열지 못해 spawn이 실패합니다. 로그는 반드시 `~/Library/Logs/` 하위에 두세요.
+2. **venv python 코드 서명 없음** — Homebrew/pyenv 기반 venv 바이너리는 코드 서명이 없어 launchd가 직접 실행을 거부할 수 있습니다. 샘플 plist는 `/bin/bash -c`로 래핑해 우회합니다.
+3. **상대 경로 해석 실패** — `WorkingDirectory`를 `~/`로 두기 때문에 `settings.yaml`의 `config/client_secrets.json` 같은 상대 경로가 깨집니다. 샘플 plist는 bash 래퍼 안에서 `cd <project> && exec python ...` 형태로 실제 cwd를 프로젝트 루트로 고정합니다.
+
+#### 로그 위치 (launchd 실행 시)
+
+- launchd stdout/stderr: `~/Library/Logs/telegram-bot/stdout.log`, `stderr.log`
+- 봇/sync 애플리케이션 로그: `logs/telegram_bot.log`, `logs/sync.log` (프로젝트 폴더 내)
 
 ---
 
