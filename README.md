@@ -166,6 +166,31 @@ Streamlit Community Cloud에 무료 배포할 수 있습니다. 자세한 내용
 
 ---
 
+## 운영 (Operations)
+
+### Telegram Bot (launchd)
+
+텔레그램 봇은 macOS launchd 서비스로 상시 구동됩니다.
+
+```bash
+# 상태 확인
+launchctl print gui/$(id -u)/com.user.telegram-bot
+
+# 재시작
+launchctl kickstart -k gui/$(id -u)/com.user.telegram-bot
+
+# 중지
+launchctl bootout gui/$(id -u)/com.user.telegram-bot
+
+# 시작 (중지 후)
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.user.telegram-bot.plist
+```
+
+- Plist: `~/Library/LaunchAgents/com.user.telegram-bot.plist`
+- 로그: `~/Library/Logs/telegram-bot/stderr.log`, `~/Library/Logs/telegram-bot/stdout.log`
+
+---
+
 ## Google Drive 업로드 구조
 
 ```
