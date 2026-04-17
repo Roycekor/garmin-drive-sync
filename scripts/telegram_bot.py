@@ -57,6 +57,9 @@ class QueueLogHandler(logging.Handler):
         self.msg_queue = msg_queue
 
     def emit(self, record):
+        # garminconnect 내부 재시도(mobile+cffi 429 등)는 사용자 노이즈 — wrapper 로그만 노출
+        if record.name.startswith("garminconnect"):
+            return
         msg = record.getMessage()
         self.msg_queue.put(msg)
 

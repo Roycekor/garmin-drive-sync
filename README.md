@@ -23,8 +23,7 @@ garmin-drive-sync/
 │  ├─ garmin_client.py     # Garmin Connect 연동
 │  ├─ drive_uploader.py    # Google Drive 업로드
 │  ├─ fit_analyzer.py      # FIT 파일 분석 (Zone2, HR drift, 페이스 안정성)
-│  ├─ telegram_bot.py      # Telegram 봇 (원격 실행)
-│  └─ garmin_browser_auth.py  # 브라우저 인증 (SSO 429 차단 우회용)
+│  └─ telegram_bot.py      # Telegram 봇 (원격 실행)
 ├─ config/
 │  ├─ client_secrets.json  # Google OAuth 클라이언트 설정
 │  └─ dashboard.json       # 대시보드 저장소 경로 설정

@@ -220,6 +220,7 @@ venv*/
 .analyze_marker
 .telegram_owner_id
 .garmin_tokens/
+.garmin_tokens.bak*/
 uploaded.json
 analysis.db
 

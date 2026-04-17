@@ -1,6 +1,7 @@
 # scripts/garmin_client.py
 from garminconnect import Garmin
 import logging
+import stat
 import zipfile
 import io
 from pathlib import Path
@@ -15,27 +16,18 @@ class GarminClient:
         self.client = None
 
     def login(self):
-        # 1) 저장된 토큰으로 로그인 시도 (SSO 호출 없음)
-        if self.tokenstore and self.tokenstore.exists():
-            try:
-                self.client = Garmin()
-                self.client.login(str(self.tokenstore))
-                logger.info("Garmin 토큰 로그인 성공 (캐시)")
-                return
-            except Exception:
-                logger.info("저장된 토큰 만료 — credential 로그인으로 전환")
-
-        # 2) credential 로그인
+        # garminconnect 0.3.x: login(path)이 토큰 로드 → 실패 시 credential 로그인 → 성공 시 자동 저장
+        tokenstore_str = str(self.tokenstore) if self.tokenstore else None
         self.client = Garmin(self.username, self.password)
-        logger.info("Garmin credential 로그인 시도")
-        self.client.login()
+        logger.info("Garmin 로그인 시도")
+        self.client.login(tokenstore_str)
         logger.info("Garmin 로그인 성공")
 
-        # 토큰 저장 (다음 실행에서 재사용)
+        # 자동 저장된 토큰 파일 권한 강화 (소유자 전용) — drive_uploader/garmin_browser_auth와 일관성
         if self.tokenstore:
-            self.tokenstore.mkdir(parents=True, exist_ok=True)
-            self.client.garth.dump(str(self.tokenstore))
-            logger.info(f"Garmin 토큰 저장 완료: {self.tokenstore}")
+            token_file = self.tokenstore / "garmin_tokens.json"
+            if token_file.exists():
+                token_file.chmod(stat.S_IRUSR | stat.S_IWUSR)
 
     def list_recent_activities(self, limit=20):
         return self.client.get_activities(0, limit)

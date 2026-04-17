@@ -243,13 +243,10 @@ launchctl stop com.user.garmin-sync
 - `.env`의 이메일/비밀번호 확인
 - 비밀번호에 특수문자가 있으면 따옴표로 감싸기
 - MFA가 활성화되어 있으면 `GARMIN_MFA_TOKEN` 설정
-- **429 Too Many Requests 반복 시**: credential 로그인이 Garmin SSO에 의해 차단된 상태입니다. 브라우저 인증 스크립트로 토큰을 수동 발급하세요:
-  ```bash
-  pip install playwright requests-oauthlib
-  playwright install chromium
-  python scripts/garmin_browser_auth.py
-  ```
-  브라우저가 열리면 Garmin 로그인을 완료합니다. 토큰이 `.garmin_tokens/`에 저장되며, 이후 `main.py` 실행 시 토큰 캐시로 동작합니다.
+- **429 Too Many Requests 반복 시**: garminconnect 0.3.x는 5가지 TLS fingerprint 전략을 자동 rotation하여 대부분의 Cloudflare 429를 내부에서 우회합니다. 그럼에도 실패한다면:
+  - 수 분 ~ 수 시간 기다린 후 재시도 (IP 단위 rate limit)
+  - VPN/프록시 사용 중이면 해제
+  - `.garmin_tokens/garmin_tokens.json`이 존재하면 삭제 후 재로그인 시도 (토큰 포맷 문제일 수 있음)
 
 ### Google Drive 인증 실패
 - `config/client_secrets.json`이 올바른 경로에 있는지 확인
