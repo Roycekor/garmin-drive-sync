@@ -102,9 +102,8 @@ ls -la config/client_secrets.json
 프로젝트 루트에 `.env` 파일을 생성합니다:
 
 ```bash
-GARMIN_EMAIL=your_garmin_email@example.com
-GARMIN_PASSWORD=your_garmin_password
-GARMIN_MFA_TOKEN=your_mfa_token_if_needed
+GARMIN_USER=your_garmin_email@example.com
+GARMIN_PASS=your_garmin_password
 DRIVE_PARENT_FOLDER_ID=your_google_drive_folder_id
 UPLOAD_PATH=Garmin/Run
 SYNC_INTERVAL=3600
@@ -113,13 +112,14 @@ LOG_LEVEL=INFO
 
 | 변수명 | 설명 | 예시 |
 |--------|------|------|
-| `GARMIN_EMAIL` | Garmin Connect 로그인 이메일 | `user@gmail.com` |
-| `GARMIN_PASSWORD` | Garmin Connect 비밀번호 | `your_password` |
-| `GARMIN_MFA_TOKEN` | (선택) MFA 토큰 | `123456` |
+| `GARMIN_USER` | Garmin Connect 로그인 이메일 | `user@gmail.com` |
+| `GARMIN_PASS` | Garmin Connect 비밀번호 | `your_password` |
 | `DRIVE_PARENT_FOLDER_ID` | Google Drive의 대상 폴더 ID | `1A2b3C4d5E...` |
 | `UPLOAD_PATH` | Drive 내 업로드 폴더 경로 | `Garmin/Run` |
 | `SYNC_INTERVAL` | 동기화 간격(초) | `3600` (1시간) |
 | `LOG_LEVEL` | 로그 레벨 | `INFO` 또는 `DEBUG` |
+
+> **MFA 계정 미지원**: 현재 코드는 Garmin 2FA를 처리하지 않습니다. 2FA가 활성화된 계정은 로그인 시 `MFA Required` 에러가 발생합니다. Garmin Connect 설정에서 2FA를 비활성화하거나, 별도 MFA 지원 패치가 필요합니다.
 
 ### Google Drive 폴더 ID 확인하는 방법
 
@@ -242,7 +242,7 @@ launchctl stop com.user.garmin-sync
 ### Garmin 로그인 실패
 - `.env`의 이메일/비밀번호 확인
 - 비밀번호에 특수문자가 있으면 따옴표로 감싸기
-- MFA가 활성화되어 있으면 `GARMIN_MFA_TOKEN` 설정
+- **MFA 에러 (`MFA Required but no prompt_mfa mechanism supplied`)**: Garmin 2FA를 끄세요 — 현재 코드 미지원
 - **429 Too Many Requests 반복 시**: garminconnect 0.3.x는 5가지 TLS fingerprint 전략을 자동 rotation하여 대부분의 Cloudflare 429를 내부에서 우회합니다. 그럼에도 실패한다면:
   - 수 분 ~ 수 시간 기다린 후 재시도 (IP 단위 rate limit)
   - VPN/프록시 사용 중이면 해제
